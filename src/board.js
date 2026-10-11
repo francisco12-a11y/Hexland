@@ -179,9 +179,9 @@ export function generateBoard(seed) {
     ports.push({
       id: i, type: PORT_TYPES[i], vids: [ia, ib],
       mx, my, nx, ny,
-      px: mx + nx * 36, py: my + ny * 36,   // fin del muelle
-      sx: mx + nx * 62, sy: my + ny * 62,   // cartel
-      ix: mx + nx * 94, iy: my + ny * 94,   // velero
+      px: mx + nx * 40, py: my + ny * 40,   // ápice del muelle (en el mar)
+      sx: mx + nx * 68, sy: my + ny * 68,   // cartel
+      ix: mx + nx * 98, iy: my + ny * 98,   // velero
     });
   });
 

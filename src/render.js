@@ -141,11 +141,17 @@ export function renderBoard(svg, st, targets, onPick) {
   el('circle', { r: 13, fill: '#5a5f66', stroke: '#fff', 'stroke-width': 2.5 }, gRob);
   el('text', { y: 4.5, 'text-anchor': 'middle', 'font-size': 14 }, gRob).textContent = '🦹';
 
-  // ports: muelle perpendicular a la costa, cartel sobre el muelle, velero afuera
+  // ports: muelle en V — desde el ápice en el mar hacia CADA uno de los dos
+  // vértices de acceso; cartel sobre el ápice y velero más afuera
   const gPort = el('g', { 'pointer-events': 'none' }, svg);
   for (const p of st.board.ports) {
-    el('line', { x1: p.mx, y1: p.my, x2: p.px, y2: p.py, stroke: '#a4713d', 'stroke-width': 9, 'stroke-linecap': 'round' }, gPort);
-    el('line', { x1: p.mx, y1: p.my, x2: p.px, y2: p.py, stroke: '#8a5a2b', 'stroke-width': 9, 'stroke-linecap': 'round', 'stroke-dasharray': '3 10' }, gPort);
+    const [va, vb] = p.vids.map((vid) => st.board.vertices[vid]);
+    const leg = (v) => {
+      el('line', { x1: v.x, y1: v.y, x2: p.px, y2: p.py, stroke: '#a4713d', 'stroke-width': 8, 'stroke-linecap': 'round' }, gPort);
+      el('line', { x1: v.x, y1: v.y, x2: p.px, y2: p.py, stroke: '#8a5a2b', 'stroke-width': 8, 'stroke-linecap': 'round', 'stroke-dasharray': '3 10' }, gPort);
+    };
+    leg(va);
+    leg(vb);
     const g = el('g', { transform: `translate(${p.sx.toFixed(1)} ${p.sy.toFixed(1)})` }, gPort);
     el('rect', { x: -26, y: -13, width: 52, height: 26, rx: 7, fill: '#fdfcf7', stroke: '#c9b48a', 'stroke-width': 1.5 }, g);
     const label = p.type === '3:1' ? '3:1 ❓' : `2:1 ${portEmoji(p.type)}`;
