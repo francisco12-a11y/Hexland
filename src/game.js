@@ -47,6 +47,7 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null) {
     phase: 'setup', // setup | roll | main | discard | robber | over
     pendingDiscards: [],
     dice: null, turn: 1, winner: null,
+    lastProduced: [],
     robber: board.robber,
     log: [`⬡ Partida creada — semilla ${seed}`],
   };
@@ -164,6 +165,7 @@ export function rollDice(st) {
   const d2 = 1 + Math.floor(st.rng() * 6);
   st.dice = [d1, d2];
   const sum = d1 + d2;
+  st.lastProduced = [];
   log(st, `🎲 ${st.players[st.current].name} tiró ${d1} + ${d2} = ${sum}.`);
   if (sum === 7) {
     st.pendingDiscards = st.players.filter((p) => totalCards(p) > 7).map((p) => p.id);
@@ -182,14 +184,17 @@ export function rollDice(st) {
 }
 
 function produce(st, sum) {
+  st.lastProduced = [];
   for (const hex of st.board.hexes) {
     if (hex.number !== sum || hex.terrain === 'desert' || st.robber === hex.id) continue;
+    let gained = false;
     for (const vid of hex.vertices) {
       for (const p of st.players) {
-        if (p.settlements.includes(vid)) p.res[TERRAIN_RES[hex.terrain]] += 1;
-        else if (p.cities.includes(vid)) p.res[TERRAIN_RES[hex.terrain]] += 2;
+        if (p.settlements.includes(vid)) { p.res[TERRAIN_RES[hex.terrain]] += 1; gained = true; }
+        else if (p.cities.includes(vid)) { p.res[TERRAIN_RES[hex.terrain]] += 2; gained = true; }
       }
     }
+    if (gained) st.lastProduced.push(hex.id);
   }
 }
 

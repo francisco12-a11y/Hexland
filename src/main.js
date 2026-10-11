@@ -101,7 +101,40 @@ function renderAll() {
   if (!game) return;
   renderBoard(svg(), game, targetsForMode(), onPick);
   renderSide();
+  updateDice();
   $('#turninfo').textContent = `Semilla ${game.seed} · Turno ${game.turn}`;
+}
+
+const DICE_PIPS = {
+  1: [[16, 16]],
+  2: [[10, 10], [22, 22]],
+  3: [[10, 10], [16, 16], [22, 22]],
+  4: [[10, 10], [22, 10], [10, 22], [22, 22]],
+  5: [[10, 10], [22, 10], [16, 16], [10, 22], [22, 22]],
+  6: [[10, 8], [22, 8], [10, 16], [22, 16], [10, 24], [22, 24]],
+};
+
+function diceSVG(v) {
+  const pips = DICE_PIPS[v].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.1" fill="#2b2f36"/>`).join('');
+  return `<svg width="42" height="42" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" rx="8" fill="#fdfcf7" stroke="#c9c2b0" stroke-width="1.5"/>${pips}</svg>`;
+}
+
+let lastDiceKey = null;
+function updateDice() {
+  const box = $('#diceres');
+  if (!game || !game.dice || game.phase === 'setup') { box.hidden = true; return; }
+  const [a, b] = game.dice;
+  box.hidden = false;
+  box.classList.toggle('seven', a + b === 7);
+  box.innerHTML = `<span class="die">${diceSVG(a)}</span><span class="die">${diceSVG(b)}</span>
+    <span class="sum">= ${a + b}</span>${a + b === 7 ? '<span class="lbl7">¡mueven al ladrón!</span>' : ''}`;
+  const key = `${a}-${b}-${game.turn}-${game.current}`;
+  if (key !== lastDiceKey) {
+    lastDiceKey = key;
+    box.classList.remove('pop');
+    void box.offsetWidth; // restart the pop animation
+    box.classList.add('pop');
+  }
 }
 
 const RES_NAMES = { wood: 'madera', brick: 'ladrillo', sheep: 'oveja', wheat: 'trigo', ore: 'mineral' };
@@ -125,11 +158,14 @@ function renderSide() {
     return `<span class="rescard ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>${left}</small></span>`;
   }).join('')}</div>`;
 
-  // current player's hand as resource cards
+  // current player's hand as resource cards (hide zero counts)
   const p = cur();
-  $('#hand').innerHTML = `<h3>Mano de ${p.name}</h3><div class="bankrow">${G.RESOURCES.map((r) =>
-    `<span class="rescard big ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>×${p.res[r]}</small></span>`
-  ).join('')}</div>`;
+  const held = G.RESOURCES.filter((r) => p.res[r] > 0);
+  $('#hand').innerHTML = `<h3>Mano de ${p.name}</h3>` + (held.length
+    ? `<div class="bankrow">${held.map((r) =>
+        `<span class="rescard big ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>×${p.res[r]}</small></span>`
+      ).join('')}</div>`
+    : `<p class="empty">Sin cartas 🃏</p>`);
 
   renderActions();
   renderPrompt();
