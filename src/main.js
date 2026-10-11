@@ -102,9 +102,15 @@ function targetsForMode() {
 function renderAll() {
   if (!game) return;
   renderBoard(svg(), game, targetsForMode(), onPick);
-  renderSide();
+  renderChips();
+  renderLog();
+  renderBank();
+  renderMe();
+  renderHand();
+  renderPieceButtons();
+  renderPrompt();
   updateDice();
-  $('#turninfo').textContent = `Semilla ${game.seed} · Turno ${game.turn}`;
+  $('#seedchip').textContent = `⬡ semilla ${game.seed} · turno ${game.turn}`;
 }
 
 const DICE_PIPS = {
@@ -173,35 +179,14 @@ const RES_NAMES = { wood: 'madera', brick: 'ladrillo', sheep: 'oveja', wheat: 't
 const resName = (r) => RES_NAMES[r];
 const totalCards = (p) => G.RESOURCES.reduce((s, r) => s + p.res[r], 0);
 
-function renderSide() {
-  // player rows, Colonist-style
-  $('#players').innerHTML = `<h3>Jugadores · ${PHASE_LABEL[game.phase]}</h3>` +
-    game.players.map((q) => `
-      <div class="prow ${q.id === game.current ? 'me' : ''}">
-        <span class="hicon">${houseHTML(q.color, 22)}</span>
-        <span class="pnm">${q.name}</span>
-        <span class="pinfo">🃏 ${totalCards(q)}</span>
-        <span class="pvp">${G.vp(q)}</span>
-      </div>`).join('');
+function renderChips() {
+  $('#scorechips').innerHTML = game.players.map((q) => `
+    <div class="chip ${q.id === game.current ? 'me' : ''}">
+      ${houseHTML(q.color, 18)}<span class="cnm">${q.name}</span><span class="cvp">${G.vp(q)}</span>
+    </div>`).join('');
+}
 
-  // bank stock
-  $('#bankrow').innerHTML = `<h3>Banco</h3><div class="bankrow">${G.RESOURCES.map((r) => {
-    const left = 19 - game.players.reduce((s, q) => s + q.res[r], 0);
-    return `<span class="rescard ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>${left}</small></span>`;
-  }).join('')}</div>`;
-
-  // current player's hand as resource cards (hide zero counts)
-  const p = cur();
-  const held = G.RESOURCES.filter((r) => p.res[r] > 0);
-  $('#hand').innerHTML = `<h3>Mano de ${p.name}</h3>` + (held.length
-    ? `<div class="bankrow">${held.map((r) =>
-        `<span class="rescard big ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>×${p.res[r]}</small></span>`
-      ).join('')}</div>`
-    : `<p class="empty">Sin cartas 🃏</p>`);
-
-  renderActions();
-  renderPrompt();
-
+function renderLog() {
   const ul = $('#log');
   ul.innerHTML = '';
   [...game.log].reverse().slice(0, 40).forEach((m) => {
@@ -211,26 +196,46 @@ function renderSide() {
   });
 }
 
-function renderActions() {
-  const box = $('#actions');
+function renderBank() {
+  $('#bankrow').innerHTML = G.RESOURCES.map((r) => {
+    const left = 19 - game.players.reduce((s, q) => s + q.res[r], 0);
+    return `<span class="rescard ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>${left}</small></span>`;
+  }).join('');
+}
+
+function renderMe() {
   const p = cur();
-  if (game.phase === 'setup') {
-    box.innerHTML = `<h3>Acciones</h3><p class="sub" style="color:var(--muted);margin:0;font-size:13px">Colocación inicial: primero el asentamiento, después el camino. Sin costos.</p>`;
-    return;
-  }
-  if (game.phase === 'robber') {
-    box.innerHTML = `<h3>Acciones</h3><p class="sub" style="color:var(--muted);margin:0;font-size:13px">Hacé clic en un hexágono para mover al ladrón.</p>`;
-    return;
-  }
-  if (game.phase === 'discard' || game.phase === 'over') {
+  $('#me').innerHTML = `
+    <span class="hicon">${houseHTML(p.color, 34)}</span>
+    <div>
+      <div class="menm">${p.name}</div>
+      <div class="mesub">🛣️ ${p.roads.length}/15 · 🏠 ${p.settlements.length}/5 · 🏛️ ${p.cities.length}/4</div>
+    </div>
+    <span class="pvp">${G.vp(p)} PV</span>`;
+}
+
+function renderHand() {
+  const p = cur();
+  const held = G.RESOURCES.filter((r) => p.res[r] > 0);
+  $('#hand').innerHTML = held.length
+    ? held.map((r) =>
+        `<span class="rescard big ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>×${p.res[r]}</small></span>`
+      ).join('')
+    : `<p class="empty">Sin cartas 🃏</p>`;
+}
+
+function renderPieceButtons() {
+  const box = $('#piecebtns');
+  const p = cur();
+  if (game.phase === 'setup' || game.phase === 'robber' || game.phase === 'discard' || game.phase === 'over') {
     box.innerHTML = '';
     return;
   }
   if (game.phase === 'roll') {
-    box.innerHTML = `<h3>Acciones</h3><p class="sub" style="color:var(--muted);margin:0;font-size:13px">🎲 Tirá los dados con el panel de arriba a la derecha ⬉</p>`;
+    box.innerHTML = `<button class="pbtn wide" disabled>🎲 Esperando tirada…</button>`;
     return;
   }
-  // main phase
+  // main phase: square piece buttons, Colonist-style
   const afford = (cost) => G.RESOURCES.every((r) => p.res[r] >= (cost[r] || 0));
   const left = { road: 15 - p.roads.length, settlement: 5 - p.settlements.length, city: 4 - p.cities.length };
   const has = (k) => {
@@ -239,22 +244,19 @@ function renderActions() {
     if (k === 'city') return G.citySpots(game, game.current).length > 0 && left.city > 0;
     return false;
   };
-  const b = (kind, label, cost) => {
-    const dis = !afford(cost) || !has(kind);
-    return `<button class="btn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" ${dis ? 'disabled' : ''}>
-      ${label}<span class="cnt">×${left[kind]}</span><span class="cost">${cost}</span></button>`;
+  const btn = (kind, icon, title) => {
+    const dis = !afford(G.COSTS[kind]) || !has(kind);
+    return `<button class="pbtn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" title="${title}" ${dis ? 'disabled' : ''}>${icon}<span class="n">×${left[kind]}</span></button>`;
   };
-  box.innerHTML = `<h3>Acciones</h3>
-    <div class="grid">
-      ${b('road', '🛣️ Camino', '1🧱 1🌲')}
-      ${b('settlement', '🏠 Asentamiento', '1🧱 1🌲 1🐑 1🌾')}
-      ${b('city', '🏛️ Ciudad', '3⛰️ 2🌾')}
-      <button class="btn" id="b-trade">🔁 Comerciar<span class="cost">con el banco</span></button>
-      <button class="btn primary wide" id="b-end">✔ Terminar turno</button>
-    </div>`;
-  box.querySelectorAll('button[data-k]').forEach((btn) => {
-    btn.onclick = () => {
-      const k = btn.dataset.k;
+  box.innerHTML = `
+    <button class="pbtn" id="b-trade" title="Comerciar con el banco">🔄</button>
+    ${btn('road', '🛣️', 'Construir camino — 1🧱 1🌲')}
+    ${btn('settlement', '🏠', 'Fundar asentamiento — 1🧱 1🌲 1🐑 1🌾')}
+    ${btn('city', '🏛️', 'Fundar ciudad — 3⛰️ 2🌾')}
+    <button class="pbtn wide" id="b-end">⏩ Terminar turno</button>`;
+  box.querySelectorAll('button[data-k]').forEach((b) => {
+    b.onclick = () => {
+      const k = b.dataset.k;
       mode = mode?.kind === k ? null : { kind: k, setup: false };
       renderAll();
     };
@@ -290,9 +292,8 @@ const modeHint = (m) => (m.kind === 'robber' ? 'tocá un hexágono' : MODE_HINT[
 let flashTimer = null;
 function flash(msg) {
   const pr = $('#prompt');
-  const prev = pr.textContent;
   pr.textContent = `⚠️ ${msg}`;
-  pr.style.color = '#ffd166';
+  pr.style.color = '#c0392b';
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => { pr.style.color = ''; renderPrompt(); }, 1800);
 }

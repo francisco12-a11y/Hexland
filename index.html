@@ -8,46 +8,53 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header>
-    <h1><span class="hex">⬡</span> Hexland</h1>
-    <span id="turninfo"></span>
-  </header>
+  <main id="game" hidden>
+    <div id="boardwrap">
+      <svg id="board"></svg>
+      <div id="seedchip"></div>
+      <div id="scorechips"></div>
+      <div id="diceres" hidden></div>
+    </div>
 
-  <main>
-    <section id="lobby" class="card">
-      <h2>Nueva partida</h2>
-      <div class="row">
-        <span class="lbl">Jugadores</span>
-        <div id="countseg" class="seg">
-          <button data-n="2">2</button>
-          <button data-n="3">3</button>
-          <button data-n="4" class="on">4</button>
-        </div>
+    <aside id="rightpanel">
+      <div id="logcard" class="cream">
+        <h3>Registro</h3>
+        <ul id="log"></ul>
       </div>
-      <div id="names"></div>
-      <div class="row">
-        <span class="lbl">Semilla <small>(opcional)</small></span>
-        <input id="seed" type="number" inputmode="numeric" placeholder="aleatoria" />
+      <div id="bankcard" class="cream">
+        <h3>Banco</h3>
+        <div id="bankrow" class="stacks"></div>
       </div>
-      <button id="play" class="btn primary big">🎮 Jugar</button>
-      <p class="note">v0 — pass &amp; play en esta pantalla.<br />Multijugador online (WebRTC) en camino 🛠️</p>
-    </section>
+    </aside>
 
-    <section id="game" hidden>
-      <div id="boardwrap">
-        <svg id="board"></svg>
+    <div id="bottombar">
+      <div id="hand"></div>
+      <div id="centerbar">
         <div id="prompt"></div>
-        <div id="diceres" hidden></div>
+        <div id="piecebtns"></div>
       </div>
-      <aside id="side">
-        <div id="players" class="card"></div>
-        <div id="bankrow" class="card"></div>
-        <div id="hand" class="card"></div>
-        <div id="actions" class="card"></div>
-        <div id="logcard" class="card"><h3>Registro</h3><ul id="log"></ul></div>
-      </aside>
-    </section>
+      <div id="me"></div>
+    </div>
   </main>
+
+  <section id="lobby" class="card">
+    <h2>Nueva partida</h2>
+    <div class="row">
+      <span class="lbl">Jugadores</span>
+      <div id="countseg" class="seg">
+        <button data-n="2">2</button>
+        <button data-n="3">3</button>
+        <button data-n="4" class="on">4</button>
+      </div>
+    </div>
+    <div id="names"></div>
+    <div class="row">
+      <span class="lbl">Semilla <small>(opcional)</small></span>
+      <input id="seed" type="number" inputmode="numeric" placeholder="aleatoria" />
+    </div>
+    <button id="play" class="btn primary big">🎮 Jugar</button>
+    <p class="note">v0 — pass &amp; play en esta pantalla.<br />Multijugador online (WebRTC) en camino 🛠️</p>
+  </section>
 
   <div id="overlay" hidden></div>
 
