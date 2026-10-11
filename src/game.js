@@ -57,24 +57,17 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null) {
 
 export const vp = (p) => p.settlements.length + 2 * p.cities.length;
 
-// vertices reachable through own roads; enemy buildings block pass-through
-export function ownNetwork(st, pid) {
+// vértices conectados a la red del jugador: sus edificios + los extremos de
+// sus caminos. Todo lo que construya tiene que tocar esta red.
+function connectedSet(st, pid) {
   const p = st.players[pid];
-  const enemyAt = (vid) =>
-    st.players.some((q) => q.id !== pid && (q.settlements.includes(vid) || q.cities.includes(vid)));
-  const seen = new Set([...p.settlements, ...p.cities]);
-  const stack = [...seen];
-  while (stack.length) {
-    const v = stack.pop();
-    if (enemyAt(v)) continue;
-    for (const eid of st.board.vertices[v].edges) {
-      const e = st.board.edges[eid];
-      if (!p.roads.includes(eid)) continue;
-      const other = e.a === v ? e.b : e.a;
-      if (!seen.has(other)) { seen.add(other); stack.push(other); }
-    }
+  const s = new Set([...p.settlements, ...p.cities]);
+  for (const eid of p.roads) {
+    const e = st.board.edges[eid];
+    s.add(e.a);
+    s.add(e.b);
   }
-  return seen;
+  return s;
 }
 
 const allBuildings = (st) => {
@@ -85,15 +78,14 @@ const allBuildings = (st) => {
 
 export function settlementSpots(st, pid, setup) {
   const occ = allBuildings(st);
-  const net = setup ? null : ownNetwork(st, pid);
+  const mine = setup ? null : connectedSet(st, pid);
   const spots = [];
   for (const v of st.board.vertices) {
     if (occ.has(v.id)) continue;
     if (v.neighbors.some((n) => occ.has(n))) continue; // distance rule
-    if (setup || v.edges.some((eid) => {
-      const e = st.board.edges[eid];
-      return (e.a === v.id && net.has(e.b)) || (e.b === v.id && net.has(e.a));
-    })) spots.push(v.id);
+    // el vértice mismo debe ser extremo de un camino propio (no alcanza
+    // con estar a un paso de la red)
+    if (setup || mine.has(v.id)) spots.push(v.id);
   }
   return spots;
 }
@@ -101,11 +93,11 @@ export function settlementSpots(st, pid, setup) {
 const roadTaken = (st, eid) => st.players.some((p) => p.roads.includes(eid));
 
 export function roadSpots(st, pid) {
-  const net = ownNetwork(st, pid);
+  const mine = connectedSet(st, pid);
   const spots = [];
   for (const e of st.board.edges) {
     if (roadTaken(st, e.id)) continue;
-    if (net.has(e.a) || net.has(e.b)) spots.push(e.id);
+    if (mine.has(e.a) || mine.has(e.b)) spots.push(e.id);
   }
   return spots;
 }

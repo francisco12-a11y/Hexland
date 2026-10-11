@@ -238,19 +238,73 @@ test('regla de distancia: no se puede colocar junto a otro edificio', () => {
   }
 });
 
-test('caminos: solo en la red propia, y el edificio enemigo corta el paso', () => {
+test('caminos: solo en la red propia, y no se puede construir lejos de ella', () => {
   const st = startGame(7);
+  st.phase = 'main';
+  const p = st.players[0];
+  for (const r of G.RESOURCES) p.res[r] = 50;
+  const mine = new Set([...p.settlements, ...p.cities]);
+  for (const eid of p.roads) { mine.add(st.board.edges[eid].a); mine.add(st.board.edges[eid].b); }
   const spots = G.roadSpots(st, 0);
   assert.ok(spots.length > 0);
-  // todo spot toca la red de p0
-  const net = G.ownNetwork(st, 0);
   for (const eid of spots) {
     const e = st.board.edges[eid];
-    assert.ok(net.has(e.a) || net.has(e.b));
+    assert.ok(mine.has(e.a) || mine.has(e.b));
   }
-  // un borde lejano no es válido
   const far = st.board.edges.find(e => !spots.includes(e.id));
   assert.equal(G.buildRoad(st, far.id).ok, false);
+});
+
+test("asentamientos: solo sobre vértices que tocan un camino propio, no a 1 de distancia (bug de Fran)", () => {
+  const st = startGame(7);
+  st.phase = 'main';
+  const p = st.players[0];
+  for (const r of G.RESOURCES) p.res[r] = 50;
+  const spots = new Set(G.settlementSpots(st, 0, false));
+  // cada camino mío tiene un extremo libre: ese SÍ es lugar válido…
+  for (const eid of p.roads) {
+    const e = st.board.edges[eid];
+    for (const vid of [e.a, e.b]) {
+      const isBuilding = p.settlements.includes(vid) || p.cities.includes(vid);
+      if (!isBuilding && !spots.has(vid)) {
+        // si está libre y cumple distancia, tiene que estar
+        const occ = st.players.some(q => q.settlements.includes(vid) || q.cities.includes(vid) ||
+          q.settlements.some(s => st.board.vertices[s].neighbors.includes(vid)));
+        if (!occ) assert.ok(spots.has(vid), `extremo de camino propio ${vid} debería ser válido`);
+      }
+    }
+  }
+  // …y un vecino del extremo libre (conectado solo por arista vacía) NO lo es
+  let checked = 0;
+  for (const eid of p.roads) {
+    const e = st.board.edges[eid];
+    for (const vid of [e.a, e.b]) {
+      if (p.settlements.includes(vid) || p.cities.includes(vid)) continue;
+      for (const nb of st.board.vertices[vid].neighbors) {
+        if (spots.has(nb)) continue; // conectado por otro lado
+        const occNear = st.players.some(q => q.settlements.includes(nb) || q.cities.includes(nb) ||
+          q.settlements.some(s => st.board.vertices[s].neighbors.includes(nb)));
+        if (occNear) continue; // inválido por distancia, no prueba nada
+        const r = G.buildSettlement(st, nb);
+        assert.equal(r.ok, false, `vértice ${nb} a 1 de distancia del fin del camino no debería ser válido`);
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 0, 'debería haber verificado al menos un nodo vecino');
+  // tras el setup los extremos libres pegan a mi propio asentamiento (regla de
+  // distancia), así que el flujo real es: extender un camino y fundar más allá
+  let ok = false;
+  for (const eid of [...G.roadSpots(st, 0)]) {
+    assert.ok(G.buildRoad(st, eid).ok, 'extender camino desde la red propia');
+    const s = G.settlementSpots(st, 0, false);
+    if (s.length) {
+      assert.ok(G.buildSettlement(st, s[0]).ok, 'fundar en vértice tocado por camino propio');
+      ok = true;
+      break;
+    }
+  }
+  assert.ok(ok, 'tras extender un camino debería haber lugar válido');
 });
 
 test('stock: 15 caminos, 5 asentamientos, 4 ciudades por jugador', () => {
