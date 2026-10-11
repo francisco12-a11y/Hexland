@@ -125,10 +125,11 @@ header .hex { color: var(--accent); }
   100% { transform: scale(1); opacity: 1; }
 }
 
-.prod { animation: prodpulse 1.3s ease-in-out infinite; }
-@keyframes prodpulse {
-  0%, 100% { opacity: 0.9; }
-  50% { opacity: 0.35; }
+.prodflash { animation: prodflash 1s linear infinite; }
+@keyframes prodflash {
+  0% { opacity: 1; }
+  60% { opacity: 0.85; }
+  100% { opacity: 0; }
 }
 
 .empty { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }

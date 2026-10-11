@@ -80,14 +80,18 @@ export function renderBoard(svg, st, targets, onPick) {
     }, gHex);
   }
 
-  // highlight hexes that just produced
+  // flashing border on every hex matching the last roll (white on navy: visible on any terrain)
   if (Array.isArray(st.lastProduced) && st.lastProduced.length) {
     const gP = el('g', { 'pointer-events': 'none' }, svg);
     for (const hid of st.lastProduced) {
       const h = st.board.hexes[hid];
       el('polygon', {
-        points: hexPoints(h), fill: 'rgba(255,236,150,0.30)', stroke: '#ffd166',
-        'stroke-width': 4, 'stroke-linejoin': 'round', class: 'prod',
+        points: hexPoints(h), fill: 'none', stroke: '#1d3557',
+        'stroke-width': 14, 'stroke-linejoin': 'round', class: 'prodflash',
+      }, gP);
+      el('polygon', {
+        points: hexPoints(h), fill: 'none', stroke: '#ffffff',
+        'stroke-width': 8, 'stroke-linejoin': 'round', class: 'prodflash',
       }, gP);
     }
   }

@@ -72,6 +72,8 @@ function startGame() {
   const seed = seedRaw ? Math.abs(parseInt(seedRaw, 10)) || 1 : undefined;
   game = G.newGame(names, seed, colorPick.slice());
   mode = { kind: 'settlement', setup: true };
+  shownDice = null;
+  lastDiceKey = null;
   $('#lobby').hidden = true;
   $('#game').hidden = false;
   renderAll();
@@ -120,10 +122,12 @@ function diceSVG(v) {
 }
 
 let lastDiceKey = null;
+let shownDice = null; // last roll stays on screen until the next one
 function updateDice() {
   const box = $('#diceres');
-  if (!game || !game.dice || game.phase === 'setup') { box.hidden = true; return; }
-  const [a, b] = game.dice;
+  if (game && game.dice) shownDice = game.dice;
+  if (!game || game.phase === 'setup' || !shownDice) { box.hidden = true; return; }
+  const [a, b] = shownDice;
   box.hidden = false;
   box.classList.toggle('seven', a + b === 7);
   box.innerHTML = `<span class="die">${diceSVG(a)}</span><span class="die">${diceSVG(b)}</span>
