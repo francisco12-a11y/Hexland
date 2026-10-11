@@ -122,23 +122,51 @@ function diceSVG(v) {
 }
 
 let lastDiceKey = null;
-let shownDice = null; // last roll stays on screen until the next one
+let shownDice = null; // last real roll stays on screen until the next one
 function updateDice() {
   const box = $('#diceres');
-  if (game && game.dice) shownDice = game.dice;
-  if (!game || game.phase === 'setup' || !shownDice) { box.hidden = true; return; }
-  const [a, b] = shownDice;
+  if (!game || game.phase === 'setup') { box.hidden = true; return; }
+  if (game.dice) shownDice = game.dice;
+  const placeholder = !shownDice;
+  const [a, b] = shownDice || [6, 6]; // 12 as the "waiting for first roll" face
+  const canRoll = game.phase === 'roll';
   box.hidden = false;
-  box.classList.toggle('seven', a + b === 7);
+  box.classList.toggle('placeholder', placeholder);
+  box.classList.toggle('seven', !placeholder && a + b === 7);
+  box.classList.toggle('attn', canRoll);
   box.innerHTML = `<span class="die">${diceSVG(a)}</span><span class="die">${diceSVG(b)}</span>
-    <span class="sum">= ${a + b}</span>${a + b === 7 ? '<span class="lbl7">¡mueven al ladrón!</span>' : ''}`;
-  const key = `${a}-${b}-${game.turn}-${game.current}`;
-  if (key !== lastDiceKey) {
-    lastDiceKey = key;
-    box.classList.remove('pop');
-    void box.offsetWidth; // restart the pop animation
-    box.classList.add('pop');
+    <span class="sum">= ${a + b}</span>${canRoll
+      ? '<span class="lblroll">¡tocá para tirar!</span>'
+      : (!placeholder && a + b === 7 ? '<span class="lbl7">¡mueven al ladrón!</span>' : '')}`;
+  if (game.dice) {
+    const key = `${a}-${b}-${game.turn}-${game.current}`;
+    if (key !== lastDiceKey) {
+      lastDiceKey = key;
+      box.classList.remove('pop');
+      void box.offsetWidth; // restart the pop animation
+      box.classList.add('pop');
+    }
   }
+}
+
+let rolling = false;
+function doRoll() {
+  if (rolling || !game || game.phase !== 'roll') return;
+  rolling = true;
+  $('#diceres').classList.remove('attn');
+  let n = 0;
+  const iv = setInterval(() => {
+    const r = () => 1 + Math.floor(Math.random() * 6);
+    $('#diceres').innerHTML = `<span class="die">${diceSVG(r())}</span><span class="die">${diceSVG(r())}</span><span class="sum">…</span>`;
+    if (++n >= 7) {
+      clearInterval(iv);
+      const r2 = G.rollDice(game);
+      rolling = false;
+      if (!r2.ok) return flash(r2.err);
+      renderAll();
+      if (game.phase === 'discard') discardChain();
+    }
+  }, 70);
 }
 
 const RES_NAMES = { wood: 'madera', brick: 'ladrillo', sheep: 'oveja', wheat: 'trigo', ore: 'mineral' };
@@ -199,9 +227,7 @@ function renderActions() {
     return;
   }
   if (game.phase === 'roll') {
-    box.innerHTML = `<h3>Acciones</h3>
-      <div class="grid"><button class="btn primary wide" id="b-roll">🎲 Tirar los dados</button></div>`;
-    $('#b-roll').onclick = doRoll;
+    box.innerHTML = `<h3>Acciones</h3><p class="sub" style="color:var(--muted);margin:0;font-size:13px">🎲 Tirá los dados con el panel de arriba a la derecha ⬉</p>`;
     return;
   }
   // main phase
@@ -307,24 +333,6 @@ function pick(g, kind, id) {
     if (kind === 'edge' && mode.kind === 'road') return G.buildRoad(g, id);
   }
   return { ok: false, err: 'Elegí un destino válido', silent: !mode };
-}
-
-/* ---------------- dice ---------------- */
-
-function doRoll() {
-  const r = G.rollDice(game);
-  if (!r.ok) return flash(r.err);
-  // quick dice animation, then settle into the new phase
-  let n = 0;
-  const iv = setInterval(() => {
-    $('#turninfo').textContent = `🎲 ${1 + Math.floor(Math.random() * 6)} + ${1 + Math.floor(Math.random() * 6)}`;
-    if (++n >= 7) {
-      clearInterval(iv);
-      renderAll();
-      if (game.phase === 'discard') discardChain();
-    }
-  }, 70);
-  renderSide();
 }
 
 /* ---------------- modals ---------------- */
@@ -474,6 +482,9 @@ function showTradeModal() {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && mode) { mode = null; renderAll(); }
 });
+
+// the dice panel itself is the roll button
+$('#diceres').addEventListener('click', () => doRoll());
 
 buildLobby();
 $('#play').onclick = startGame;
