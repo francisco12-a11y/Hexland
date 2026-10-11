@@ -14,7 +14,7 @@ Incluye:
 - Dados, producción, ladrón, descarte de más de 7 cartas y robo
 - Construcción de caminos, asentamientos y ciudades (con regla de distancia y piezas limitadas)
 - Comercio con el banco (4:1, y 3:1 / 2:1 si tocás puerto)
-- Victoria a los 10 puntos (asentamientos y ciudades)
+- Victoria a los **8 puntos** (asentamientos y ciudades — con cartas de desarrollo y camino comercial el umbral clásico vuelve a ser 10)
 
 ## Cómo jugar
 

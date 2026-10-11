@@ -20,7 +20,9 @@ export const COST_LABEL = {
 const STOCK = { road: 15, settlement: 5, city: 4 };
 
 export const PLAYER_COLORS = ['#e63946', '#457b9d', '#f4a261', '#a78bfa'];
-export const WIN_VP = 10;
+// 8 porque solo con edificios el techo es 9 PV (1 pueblo + 4 ciudades);
+// cuando entren cartas de desarrollo y camino comercial, vuelve a ser 10.
+export const WIN_VP = 8;
 
 const OK = { ok: true };
 const err = (msg) => ({ ok: false, err: msg });
@@ -47,7 +49,7 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null) {
     phase: 'setup', // setup | roll | main | discard | robber | over
     pendingDiscards: [],
     dice: null, turn: 1, winner: null,
-    lastProduced: [],
+    lastProduced: [], lastGain: {},
     robber: board.robber,
     log: [`⬡ Partida creada — semilla ${seed}`],
   };
@@ -166,6 +168,7 @@ export function rollDice(st) {
   st.dice = [d1, d2];
   const sum = d1 + d2;
   st.lastProduced = st.board.hexes.filter((h) => h.number === sum).map((h) => h.id);
+  st.lastGain = {};
   log(st, `🎲 ${st.players[st.current].name} tiró ${d1} + ${d2} = ${sum}.`);
   if (sum === 7) {
     st.pendingDiscards = st.players.filter((p) => totalCards(p) > 7).map((p) => p.id);
@@ -184,14 +187,29 @@ export function rollDice(st) {
 }
 
 function produce(st, sum) {
+  st.lastGain = {};
+  const per = {}; // pid -> { recurso: cantidad }
   for (const hex of st.board.hexes) {
     if (hex.number !== sum || hex.terrain === 'desert' || st.robber === hex.id) continue;
+    let hexGain = 0;
     for (const vid of hex.vertices) {
       for (const p of st.players) {
-        if (p.settlements.includes(vid)) p.res[TERRAIN_RES[hex.terrain]] += 1;
-        else if (p.cities.includes(vid)) p.res[TERRAIN_RES[hex.terrain]] += 2;
+        // cada edificio junto al hex cobra: pueblo 1, ciudad 2 (aunque sean varios del mismo dueño)
+        const n = p.settlements.includes(vid) ? 1 : p.cities.includes(vid) ? 2 : 0;
+        if (!n) continue;
+        const res = TERRAIN_RES[hex.terrain];
+        p.res[res] += n;
+        hexGain += n;
+        (per[p.id] ??= {});
+        per[p.id][res] = (per[p.id][res] || 0) + n;
       }
     }
+    if (hexGain) st.lastGain[hex.id] = { n: hexGain, res: TERRAIN_RES[hex.terrain] };
+  }
+  // deja rastro de quién cobró qué: en pass & play la mano del resto está oculta
+  for (const [pid, gains] of Object.entries(per)) {
+    const detail = Object.entries(gains).map(([r, n]) => `${RES_EMOJI[r]}×${n}`).join(' ');
+    log(st, `📦 ${st.players[pid].name} recibió ${detail}.`);
   }
 }
 

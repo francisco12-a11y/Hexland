@@ -1,0 +1,10 @@
+{
+  "name": "hexland",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Juego de mesa estilo colonos sobre una isla de hexágonos — vanilla JS + SVG",
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}

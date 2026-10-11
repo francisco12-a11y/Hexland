@@ -121,6 +121,20 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
+  // "+N" badges on hexes that paid out this roll
+  if (st.lastGain && Object.keys(st.lastGain).length) {
+    const gG = el('g', { 'pointer-events': 'none' }, svg);
+    for (const [hid, info] of Object.entries(st.lastGain)) {
+      const h = st.board.hexes[Number(hid)];
+      const g = el('g', { transform: `translate(${h.x.toFixed(1)} ${(h.y - 54).toFixed(1)})` }, gG);
+      el('rect', { x: -28, y: -13, width: 56, height: 24, rx: 12, fill: '#fdfcf7', stroke: '#c9b48a', 'stroke-width': 1.5 }, g);
+      el('text', {
+        y: 5, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 800,
+        fill: '#3d3325', 'font-family': 'system-ui',
+      }, g).textContent = `+${info.n} ${portEmoji(info.res)}`;
+    }
+  }
+
   // robber token
   const rHex = st.board.hexes.find((h) => h.id === st.robber);
   const gRob = el('g', { transform: `translate(${rHex.x + 32} ${rHex.y + 34})`, 'pointer-events': 'none' }, svg);
