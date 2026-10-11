@@ -149,14 +149,16 @@ export function generateBoard(seed) {
     }
   }
 
-  // 9 puertos uniformes sobre el perímetro: el muelle sale PERPENDICULAR al
-  // borde costero (no radial), con el cartel sobre el muelle y el velero
-  // más afuera. Acceso desde los dos vértices costeros del borde.
-  const PORT_TYPES = shuffle(['3:1', '3:1', '3:1', '3:1', 'wood', 'sheep', 'ore', 'brick', 'wheat'], rng);
-  const off = Math.floor(rng() * 2);
+  // Los puertos son parte del MARCO del tablero: 9 posiciones y 9 tipos FIJOS
+  // (como el tablero real). El ciclo del perímetro es determinista, así que la
+  // ubicación es siempre la misma; lo único que cambia entre partidas es qué
+  // hexágono queda detrás de cada acceso (sus dos vértices que dan al mar).
+  // El muelle sale PERPENDICULAR al borde costero, cartel sobre el muelle y
+  // velero más afuera.
+  const PORT_TYPES = ['3:1', 'wood', '3:1', 'sheep', '3:1', 'ore', '3:1', 'brick', 'wheat'];
   const ports = [];
   for (let i = 0; i < 9; i++) {
-    const e = edges[cycle[(off + 2 * i) % cycle.length]];
+    const e = edges[cycle[(2 * i) % cycle.length]];
     const a = vertices[e.a], b = vertices[e.b];
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const dx = b.x - a.x, dy = b.y - a.y;

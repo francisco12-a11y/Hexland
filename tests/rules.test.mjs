@@ -67,34 +67,41 @@ test('sin 6/8 adyacentes en 200 semillas', () => {
   }
 });
 
-test('puertos: 9 uniformes, acceso costero y muelle perpendicular hacia el mar', () => {
-  for (let seed = 1; seed <= 60; seed++) {
-    const b = generateBoard(seed);
-    assert.equal(b.ports.length, 9, `semilla ${seed}`);
+test('puertos: marco fijo (misma posición y tipo siempre), acceso costero y muelle perpendicular', () => {
+  // posiciones y tipos idénticos entre semillas: el marco no se baraja
+  const a = generateBoard(1), b = generateBoard(999);
+  const frame = (bd) => bd.ports.map(p => ({ t: p.type, vids: p.vids, mx: p.mx, my: p.my, nx: p.nx, ny: p.ny }));
+  assert.deepEqual(frame(a), frame(b));
+
+  for (const bd of [a, b]) {
+    assert.equal(bd.ports.length, 9);
     const seen = new Set();
-    for (const p of b.ports) {
+    for (const p of bd.ports) {
       // acceso: dos vértices costeros distintos (pertenecen al anillo de la costa)
       assert.equal(p.vids.length, 2);
-      const [va, vb] = p.vids.map(vid => b.vertices[vid]);
+      const [va, vb] = p.vids.map(vid => bd.vertices[vid]);
       assert.notEqual(va.id, vb.id);
-      assert.ok(b.coast.includes(va.id), 'vértice costero a');
-      assert.ok(b.coast.includes(vb.id), 'vértice costero b');
+      assert.ok(bd.coast.includes(va.id), 'vértice costero a');
+      assert.ok(bd.coast.includes(vb.id), 'vértice costero b');
       // los puertos no comparten vértices (espaciado cada 2 bordes del ciclo)
       for (const vid of p.vids) {
-        assert.ok(!seen.has(vid), `semilla ${seed}: puertos juntos`);
+        assert.ok(!seen.has(vid), 'puertos juntos');
         seen.add(vid);
       }
       // la normal del muelle apunta al mar (afuera de la isla, centrada en el origen)
-      assert.ok(p.nx * p.mx + p.ny * p.my > 0, `semilla ${seed}: normal hacia adentro`);
+      assert.ok(p.nx * p.mx + p.ny * p.my > 0, 'normal hacia adentro');
       // el muelle es perpendicular al borde costero
-      const va2 = b.vertices[p.vids[0]], vb2 = b.vertices[p.vids[1]];
-      const dot = (vb2.x - va2.x) * p.nx + (vb2.y - va2.y) * p.ny;
-      assert.ok(Math.abs(dot) < 1e-6, `semilla ${seed}: muelle no perpendicular`);
+      const dot = (vb.x - va.x) * p.nx + (vb.y - va.y) * p.ny;
+      assert.ok(Math.abs(dot) < 1e-6, 'muelle no perpendicular');
       // cartel y velero más lejos de la costa que el inicio del muelle
       assert.ok(Math.hypot(p.ix, p.iy) > Math.hypot(p.px, p.py));
       assert.ok(Math.hypot(p.px, p.py) > Math.hypot(p.mx, p.my));
     }
   }
+  // tipos: 4× 3:1 + 5× 2:1
+  const t = a.ports.map(p => p.type);
+  assert.equal(t.filter(x => x === '3:1').length, 4);
+  assert.equal(t.length - t.filter(x => x === '3:1').length, 5);
 });
 
 // ---------- producción (los bugs que reportó Fran) ----------
