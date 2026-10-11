@@ -87,7 +87,9 @@ export function generateBoard(seed) {
     const cornerIds = [];
     for (let c = 0; c < 6; c++) {
       const p = hexCorner(x, y, c);
-      const key = `${p.x.toFixed(1)}|${p.y.toFixed(1)}`;
+      // clave entera: toFixed distingue "-0.0" de "0.0" y desfusiona esquinas
+      // (residuo de cos(±90°)), partiendo el perímetro en dos
+      const key = `${Math.round(p.x * 10)}|${Math.round(p.y * 10)}`;
       if (!vMap.has(key)) {
         const v = { id: vMap.size, x: p.x, y: p.y, hexes: [], edges: [] };
         vMap.set(key, v); vertices.push(v);
@@ -149,30 +151,39 @@ export function generateBoard(seed) {
     }
   }
 
-  // Los puertos son parte del MARCO del tablero: 9 posiciones y 9 tipos FIJOS
-  // (como el tablero real). El ciclo del perímetro es determinista, así que la
-  // ubicación es siempre la misma; lo único que cambia entre partidas es qué
-  // hexágono queda detrás de cada acceso (sus dos vértices que dan al mar).
-  // El muelle sale PERPENDICULAR al borde costero, cartel sobre el muelle y
-  // velero más afuera.
+  // Los puertos son parte del MARCO: 9 posiciones y 9 tipos FIJOS. Sobre el
+  // ciclo costero de 30 vértices, cada puerto cubre 2 vértices adyacentes —
+  // uno que toca 2 hexágonos y uno que toca 1 — con huecos de 1,1,2 vértices
+  // entre puertos (ritmo ppn ppn ppn nn), que cierra exacto en 30 con 9
+  // puertos. El muelle sale perpendicular al borde; cartel y velero afuera.
   const PORT_TYPES = ['3:1', 'wood', '3:1', 'sheep', '3:1', 'ore', '3:1', 'brick', 'wheat'];
+  const starts = [0, 3, 6, 10, 13, 16, 20, 23, 26];
+  const counts = coast.map((vid) => vertices[vid].hexes.length);
+  const mixed = (s) => {
+    const a = counts[s % 30], b = counts[(s + 1) % 30];
+    return (a === 1 && b === 2) || (a === 2 && b === 1);
+  };
+  let off = 0;
+  for (let s = 0; s < 30; s++) {
+    if (starts.every((st) => mixed(s + st))) { off = s; break; }
+  }
   const ports = [];
-  for (let i = 0; i < 9; i++) {
-    const e = edges[cycle[(2 * i) % cycle.length]];
-    const a = vertices[e.a], b = vertices[e.b];
+  starts.forEach((st, i) => {
+    const ia = coast[(off + st) % 30], ib = coast[(off + st + 1) % 30];
+    const a = vertices[ia], b = vertices[ib];
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const dx = b.x - a.x, dy = b.y - a.y;
     const elen = Math.hypot(dx, dy) || 1;
     let nx = -dy / elen, ny = dx / elen;               // normal al borde
     if (nx * mx + ny * my < 0) { nx = -nx; ny = -ny; } // apuntando al mar
     ports.push({
-      id: i, type: PORT_TYPES[i], vids: [e.a, e.b],
+      id: i, type: PORT_TYPES[i], vids: [ia, ib],
       mx, my, nx, ny,
       px: mx + nx * 36, py: my + ny * 36,   // fin del muelle
       sx: mx + nx * 62, sy: my + ny * 62,   // cartel
       ix: mx + nx * 94, iy: my + ny * 94,   // velero
     });
-  }
+  });
 
   return { hexes, vertices, edges, ports, coast, robber: desert.id, seed };
 }

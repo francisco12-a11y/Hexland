@@ -73,29 +73,43 @@ test('puertos: marco fijo (misma posición y tipo siempre), acceso costero y mue
   const frame = (bd) => bd.ports.map(p => ({ t: p.type, vids: p.vids, mx: p.mx, my: p.my, nx: p.nx, ny: p.ny }));
   assert.deepEqual(frame(a), frame(b));
 
+  // la isla tiene exactamente 30 vértices costeros (18 de 1 hex + 12 de 2 hexes)
+  const coast = (bd) => bd.coast;
+  assert.equal(coast(a).length, 30);
+  assert.equal(new Set(coast(a)).size, 30);
+  assert.equal(new Set(coast(a)).size, new Set(coast(b)).size);
+
   for (const bd of [a, b]) {
     assert.equal(bd.ports.length, 9);
-    const seen = new Set();
+    const counts = bd.coast.map(vid => bd.vertices[vid].hexes.length);
+    assert.equal(counts.filter(c => c === 1).length, 18);
+    assert.equal(counts.filter(c => c === 2).length, 12);
+    // ritmo ppn ppn ppn nn: cada puerto cubre (1hex, 2hex) adyacentes y los
+    // huecos entre puertos son 1,1,2 vértices
     for (const p of bd.ports) {
-      // acceso: dos vértices costeros distintos (pertenecen al anillo de la costa)
-      assert.equal(p.vids.length, 2);
+      const [ca, cb] = p.vids.map(vid => bd.vertices[vid].hexes.length);
+      assert.deepEqual([ca, cb].sort(), [1, 2], 'acceso: un vértice de 1 hex + uno de 2');
+      assert.ok(bd.coast.includes(p.vids[0]) && bd.coast.includes(p.vids[1]), 'ambos costeros');
+    }
+    // huecos: distancia a lo largo del ciclo entre el 2do vértice de un puerto
+    // y el 1ro del siguiente = 1,1,2 repetido (inicio-a-inicio: 3,3,4)
+    const posOf = new Map(bd.coast.map((vid, i) => [vid, i]));
+    // orden circular desde el primer puerto
+    const base = bd.ports[0].vids[0];
+    const ordered = bd.ports.map(p => posOf.get(p.vids[0]))
+      .map(i => (i - posOf.get(base) + 30) % 30).sort((x, y) => x - y);
+    for (let i = 0; i < ordered.length; i++) {
+      const next = ordered[(i + 1) % ordered.length];
+      const gap = (next - ordered[i] + 30) % 30; // distancia inicio-a-inicio
+      assert.ok([3, 3, 4].includes(gap), `hueco de puerto inválido: ${gap}`);
+    }
+    // geometría del muelle
+    for (const p of bd.ports) {
       const [va, vb] = p.vids.map(vid => bd.vertices[vid]);
-      assert.notEqual(va.id, vb.id);
-      assert.ok(bd.coast.includes(va.id), 'vértice costero a');
-      assert.ok(bd.coast.includes(vb.id), 'vértice costero b');
-      // los puertos no comparten vértices (espaciado cada 2 bordes del ciclo)
-      for (const vid of p.vids) {
-        assert.ok(!seen.has(vid), 'puertos juntos');
-        seen.add(vid);
-      }
-      // la normal del muelle apunta al mar (afuera de la isla, centrada en el origen)
       assert.ok(p.nx * p.mx + p.ny * p.my > 0, 'normal hacia adentro');
-      // el muelle es perpendicular al borde costero
       const dot = (vb.x - va.x) * p.nx + (vb.y - va.y) * p.ny;
       assert.ok(Math.abs(dot) < 1e-6, 'muelle no perpendicular');
-      // cartel y velero más lejos de la costa que el inicio del muelle
       assert.ok(Math.hypot(p.ix, p.iy) > Math.hypot(p.px, p.py));
-      assert.ok(Math.hypot(p.px, p.py) > Math.hypot(p.mx, p.my));
     }
   }
   // tipos: 4× 3:1 + 5× 2:1
