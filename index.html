@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hexland</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='50,3 93,26 93,73 50,97 7,73 7,26' fill='%23f4c95d' stroke='%230f2440' stroke-width='6'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1><span class="hex">⬡</span> Hexland</h1>
+    <span id="turninfo"></span>
+  </header>
+
+  <main>
+    <section id="lobby" class="card">
+      <h2>Nueva partida</h2>
+      <div class="row">
+        <span class="lbl">Jugadores</span>
+        <div id="countseg" class="seg">
+          <button data-n="2">2</button>
+          <button data-n="3">3</button>
+          <button data-n="4" class="on">4</button>
+        </div>
+      </div>
+      <div id="names"></div>
+      <div class="row">
+        <span class="lbl">Semilla <small>(opcional)</small></span>
+        <input id="seed" type="number" inputmode="numeric" placeholder="aleatoria" />
+      </div>
+      <button id="play" class="btn primary big">🎮 Jugar</button>
+      <p class="note">v0 — pass &amp; play en esta pantalla.<br />Multijugador online (WebRTC) en camino 🛠️</p>
+    </section>
+
+    <section id="game" hidden>
+      <div id="boardwrap">
+        <svg id="board"></svg>
+        <div id="prompt"></div>
+      </div>
+      <aside id="side">
+        <div id="players" class="card"></div>
+        <div id="bankrow" class="card"></div>
+        <div id="hand" class="card"></div>
+        <div id="actions" class="card"></div>
+        <div id="logcard" class="card"><h3>Registro</h3><ul id="log"></ul></div>
+      </aside>
+    </section>
+  </main>
+
+  <div id="overlay" hidden></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
