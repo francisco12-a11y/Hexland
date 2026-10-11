@@ -67,6 +67,36 @@ test('sin 6/8 adyacentes en 200 semillas', () => {
   }
 });
 
+test('puertos: 9 uniformes, acceso costero y muelle perpendicular hacia el mar', () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    const b = generateBoard(seed);
+    assert.equal(b.ports.length, 9, `semilla ${seed}`);
+    const seen = new Set();
+    for (const p of b.ports) {
+      // acceso: dos vértices costeros distintos (pertenecen al anillo de la costa)
+      assert.equal(p.vids.length, 2);
+      const [va, vb] = p.vids.map(vid => b.vertices[vid]);
+      assert.notEqual(va.id, vb.id);
+      assert.ok(b.coast.includes(va.id), 'vértice costero a');
+      assert.ok(b.coast.includes(vb.id), 'vértice costero b');
+      // los puertos no comparten vértices (espaciado cada 2 bordes del ciclo)
+      for (const vid of p.vids) {
+        assert.ok(!seen.has(vid), `semilla ${seed}: puertos juntos`);
+        seen.add(vid);
+      }
+      // la normal del muelle apunta al mar (afuera de la isla, centrada en el origen)
+      assert.ok(p.nx * p.mx + p.ny * p.my > 0, `semilla ${seed}: normal hacia adentro`);
+      // el muelle es perpendicular al borde costero
+      const va2 = b.vertices[p.vids[0]], vb2 = b.vertices[p.vids[1]];
+      const dot = (vb2.x - va2.x) * p.nx + (vb2.y - va2.y) * p.ny;
+      assert.ok(Math.abs(dot) < 1e-6, `semilla ${seed}: muelle no perpendicular`);
+      // cartel y velero más lejos de la costa que el inicio del muelle
+      assert.ok(Math.hypot(p.ix, p.iy) > Math.hypot(p.px, p.py));
+      assert.ok(Math.hypot(p.px, p.py) > Math.hypot(p.mx, p.my));
+    }
+  }
+});
+
 // ---------- producción (los bugs que reportó Fran) ----------
 
 test('producción: dos asentamientos del mismo jugador en el hex → +2 (bug 1), y el jugador inactivo también cobra (bug 2)', () => {

@@ -141,19 +141,19 @@ export function renderBoard(svg, st, targets, onPick) {
   el('circle', { r: 13, fill: '#5a5f66', stroke: '#fff', 'stroke-width': 2.5 }, gRob);
   el('text', { y: 4.5, 'text-anchor': 'middle', 'font-size': 14 }, gRob).textContent = '🦹';
 
-  // ports: wooden pier out to a ship, ratio sign above it
+  // ports: muelle perpendicular a la costa, cartel sobre el muelle, velero afuera
   const gPort = el('g', { 'pointer-events': 'none' }, svg);
   for (const p of st.board.ports) {
     el('line', { x1: p.mx, y1: p.my, x2: p.px, y2: p.py, stroke: '#a4713d', 'stroke-width': 9, 'stroke-linecap': 'round' }, gPort);
     el('line', { x1: p.mx, y1: p.my, x2: p.px, y2: p.py, stroke: '#8a5a2b', 'stroke-width': 9, 'stroke-linecap': 'round', 'stroke-dasharray': '3 10' }, gPort);
-    const g = el('g', { transform: `translate(${p.ix.toFixed(1)} ${p.iy.toFixed(1)})` }, gPort);
-    el('text', { y: 12, 'font-size': 30, 'text-anchor': 'middle' }, g).textContent = '⛵';
-    el('rect', { x: -26, y: -40, width: 52, height: 26, rx: 7, fill: '#fdfcf7', stroke: '#c9b48a', 'stroke-width': 1.5 }, g);
+    const g = el('g', { transform: `translate(${p.sx.toFixed(1)} ${p.sy.toFixed(1)})` }, gPort);
+    el('rect', { x: -26, y: -13, width: 52, height: 26, rx: 7, fill: '#fdfcf7', stroke: '#c9b48a', 'stroke-width': 1.5 }, g);
     const label = p.type === '3:1' ? '3:1 ❓' : `2:1 ${portEmoji(p.type)}`;
     el('text', {
-      y: -22, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 800,
-      fill: '#3d3325', 'font-family': 'system-ui',
+      y: 1, 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': 13,
+      'font-weight': 800, fill: '#3d3325', 'font-family': 'system-ui',
     }, g).textContent = label;
+    el('text', { x: p.ix.toFixed(1), y: (p.iy + 10).toFixed(1), 'font-size': 30, 'text-anchor': 'middle' }, gPort).textContent = '⛵';
   }
 
   // roads: player color with white outline

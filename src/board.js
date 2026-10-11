@@ -149,8 +149,9 @@ export function generateBoard(seed) {
     }
   }
 
-  // 9 ports on every other perimeter edge: pier from the coast to a ship,
-  // with a ratio sign hanging over it. Access from both pier vertices.
+  // 9 puertos uniformes sobre el perímetro: el muelle sale PERPENDICULAR al
+  // borde costero (no radial), con el cartel sobre el muelle y el velero
+  // más afuera. Acceso desde los dos vértices costeros del borde.
   const PORT_TYPES = shuffle(['3:1', '3:1', '3:1', '3:1', 'wood', 'sheep', 'ore', 'brick', 'wheat'], rng);
   const off = Math.floor(rng() * 2);
   const ports = [];
@@ -158,13 +159,16 @@ export function generateBoard(seed) {
     const e = edges[cycle[(off + 2 * i) % cycle.length]];
     const a = vertices[e.a], b = vertices[e.b];
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-    const len = Math.hypot(mx, my) || 1;
-    const ux = mx / len, uy = my / len;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const elen = Math.hypot(dx, dy) || 1;
+    let nx = -dy / elen, ny = dx / elen;               // normal al borde
+    if (nx * mx + ny * my < 0) { nx = -nx; ny = -ny; } // apuntando al mar
     ports.push({
       id: i, type: PORT_TYPES[i], vids: [e.a, e.b],
-      mx, my,
-      px: ux * (len + 36), py: uy * (len + 36),   // pier end
-      ix: ux * (len + 88), iy: uy * (len + 88),   // ship + sign anchor
+      mx, my, nx, ny,
+      px: mx + nx * 36, py: my + ny * 36,   // fin del muelle
+      sx: mx + nx * 62, sy: my + ny * 62,   // cartel
+      ix: mx + nx * 94, iy: my + ny * 94,   // velero
     });
   }
 
