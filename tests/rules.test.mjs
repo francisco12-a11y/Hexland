@@ -859,20 +859,30 @@ test('volcán: grilla 71 de Fran (P/D/N/O fijos, R variable sin piedra)', () => 
 test('oro: al producir te deja elegir recurso (pueblo 1, ciudad 2) y bloquea el fin de turno', () => {
   const st = G.newGame(['A', 'B'], 7, null, 'oro');
   assert.equal(st.map, 'oro');
-  // asentamiento junto al oro en un vértice libre de niebla
+  // regla del volcán: primera pasada solo sobre vértices de R
   const gold = st.board.hexes.find((h) => h.terrain === 'gold');
   const vidOro = gold.vertices.find((v) =>
     !st.board.vertices[v].hexes.some((hid) => st.board.hexes[hid].fog)
     && !st.board.vertices[v].hexes.some((hid) => hid !== gold.id && st.board.hexes[hid].number === 8));
   assert.ok(vidOro != null, 'el oro tiene al menos un vértice sin niebla');
+  const primeraRonda = G.settlementSpots(st, 0, true);
+  assert.ok(!primeraRonda.includes(vidOro), 'primera pasada: el oro está prohibido');
+  assert.ok(primeraRonda.every((v) =>
+    st.board.vertices[v].hexes.some((hid) => st.board.hexes[hid].plain)), 'primera pasada: solo R');
+  // pasada 1: todos sobre R (lejos del oro, para no bloquearlo por distancia);
+  // pasada 2: junto al oro (ahora permitido)
+  const lejosDelOro = (v) => !gold.vertices.includes(v) && !st.board.vertices[v].neighbors.includes(vidOro);
+  G.placeSetupSettlement(st, primeraRonda.find(lejosDelOro));
+  G.placeSetupRoad(st, G.setupRoadSpots(st, 0)[0]);
+  G.placeSetupSettlement(st, G.settlementSpots(st, 1, true).find(lejosDelOro));
+  G.placeSetupRoad(st, G.setupRoadSpots(st, 1)[0]);
+  // pasada 2 en orden serpenteante invertido: primero coloca el jugador 1
+  G.placeSetupSettlement(st, G.settlementSpots(st, 1, true).find(lejosDelOro));
+  G.placeSetupRoad(st, G.setupRoadSpots(st, 1)[0]);
+  const segunda = G.settlementSpots(st, 0, true);
+  assert.ok(segunda.includes(vidOro), 'segunda pasada: el oro se puede poblar');
   G.placeSetupSettlement(st, vidOro);
   G.placeSetupRoad(st, G.setupRoadSpots(st, 0)[0]);
-  G.placeSetupSettlement(st, G.settlementSpots(st, 1, true)[0]);
-  G.placeSetupRoad(st, G.setupRoadSpots(st, 1)[0]);
-  G.placeSetupSettlement(st, G.settlementSpots(st, 0, true)[0]);
-  G.placeSetupRoad(st, G.setupRoadSpots(st, 0)[0]);
-  G.placeSetupSettlement(st, G.settlementSpots(st, 1, true)[0]);
-  G.placeSetupRoad(st, G.setupRoadSpots(st, 1)[0]);
   for (const p of st.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
   // pueblo junto al oro + tirada del 8 → pendiente de elección, sin carta directa
   const antes = { ...st.players[0].res };

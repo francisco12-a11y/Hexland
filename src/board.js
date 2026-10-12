@@ -393,7 +393,7 @@ export function generateOroBoard(seed) {
       else if (code === 'P') cells.push({ q, r, kind: 'land', terrain: 'mountains', number: 0 });
       else if (code === 'O') cells.push({ q, r, kind: 'gold', terrain: 'gold', number: 8 });
       else if (code === 'N') cells.push({ q, r, kind: 'fog', terrain: 'fog', fog: true, number: 0 });
-      else cells.push({ q, r, kind: 'var', terrain: 'var', number: 0 });
+      else cells.push({ q, r, kind: 'var', terrain: 'var', number: 0, plain: true });
     });
   });
 
@@ -429,7 +429,7 @@ export function generateOroBoard(seed) {
     const { x, y } = hexCenter(cell.q, cell.r);
     const hex = {
       id: i, q: cell.q, r: cell.r, x, y,
-      terrain: cell.terrain, number: cell.number, fog: !!cell.fog,
+      terrain: cell.terrain, number: cell.number, fog: !!cell.fog, plain: !!cell.plain,
       vertices: [], edges: [],
     };
     const cornerIds = [];
@@ -519,5 +519,5 @@ export function generateOroBoard(seed) {
   // el ladrón arranca en el primer desierto (determinístico)
   const desert = hexes.find((h) => h.terrain === 'desert');
 
-  return { hexes, vertices, edges, ports, coast, robber: desert.id, seed, map: 'oro' };
+  return { hexes, vertices, edges, ports, coast, robber: desert.id, seed, map: 'oro', firstRoundPlain: true };
 }

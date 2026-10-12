@@ -146,12 +146,17 @@ const allBuildings = (st) => {
 export function settlementSpots(st, pid, setup) {
   const occ = allBuildings(st);
   const mine = setup ? null : connectedSet(st, pid);
+  // volcán: en la primera pasada solo se funda sobre casillas de recurso
+  // variable (R) — prohibido piedra, oro, desierto y niebla
+  const firstPass = setup && st.setupIdx < st.players.length;
+  const needPlain = firstPass && st.board.firstRoundPlain;
   const spots = [];
   for (const v of st.board.vertices) {
     if (occ.has(v.id)) continue;
     if (v.neighbors.some((n) => occ.has(n))) continue; // distance rule
     // niebla: no se puede poblar un vértice que toque un hex sin descubrir
     if (v.hexes.some((hid) => hexHidden(st, hid))) continue;
+    if (needPlain && !v.hexes.some((hid) => st.board.hexes[hid].plain)) continue;
     // el vértice mismo debe ser extremo de un camino propio (no alcanza
     // con estar a un paso de la red)
     if (setup || mine.has(v.id)) spots.push(v.id);

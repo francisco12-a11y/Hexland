@@ -628,6 +628,9 @@ function renderPrompt() {
     msg = roadStep
       ? `🛣️ ${p.name}: elegí el camino junto a tu asentamiento`
       : `🏠 ${p.name}: elegí dónde fundar tu asentamiento`;
+    if (!roadStep && game.board.firstRoundPlain && game.setupIdx < game.players.length) {
+      msg = `🏠 ${p.name}: primer asentamiento sobre un recurso (no piedra ni oro)`;
+    }
     if (waiting) msg = `⏳ ${p.name} está colocando…`;
   } else if (game.phase === 'roll') {
     msg = waiting ? `⏳ ${p.name} está por tirar…` : `🎲 ${session.online ? 'Tocá el panel de dados' : p.name + ': tirá los dados'}`;
