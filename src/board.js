@@ -373,13 +373,20 @@ const VOLCAN_VAR_DECK = [
   ...Array(9).fill('fields'),
   ...Array(9).fill('hills'),
 ];
-// 56 fichas para los hexes numerados que no son oro (solo 8 rojas: con más
-// no se puede cumplir la regla de no 6/8 pegados en una grilla tan llena)
-const VOLCAN_NUMBERS = [
-  ...TOKENS, ...TOKENS,
-  ...Array(4).fill(2), ...Array(4).fill(3), ...Array(4).fill(4), ...Array(4).fill(5),
-  ...Array(4).fill(9), ...Array(4).fill(10), ...Array(4).fill(11), ...Array(4).fill(12),
-];
+// Números por zonas (balance de Fran): las esquinas (R) solo pueden llevar
+// 4-10 sin 7; el interior (piedra, niebla y el oro) es totalmente aleatorio
+// 2-12 sin 7. En total 8 fichas rojas para que la regla de no 6/8 pegados
+// siempre tenga solución.
+const VOLCAN_CORNER_NUMBERS = [
+  ...Array(4).fill(4), ...Array(4).fill(5), ...Array(3).fill(6),
+  ...Array(3).fill(8), ...Array(3).fill(9), ...Array(3).fill(10),
+]; // 20 esquinas
+const VOLCAN_INTERIOR_NUMBERS = [
+  ...TOKENS,
+  ...Array(2).fill(2), ...Array(2).fill(3), ...Array(2).fill(4), ...Array(2).fill(5),
+  ...Array(2).fill(9), ...Array(2).fill(10), ...Array(2).fill(11), ...Array(2).fill(12),
+  2, 4,
+]; // 37 interiores, solo 4 rojas (con más no se satisface el no 6/8 pegado)
 
 export function generateOroBoard(seed) {
   const rng = mulberry32(seed);
@@ -402,11 +409,18 @@ export function generateOroBoard(seed) {
   const variables = cells.filter((c) => c.kind === 'var' || c.kind === 'fog');
   shuffle([...VOLCAN_VAR_DECK], rng).forEach((t, i) => { variables[i].terrain = t; });
 
-  // números para las 70 casillas que no son desierto, sin 6/8 pegados (el 8 del oro cuenta)
-  const numeradas = cells.filter((c) => c.kind !== 'desert');
+  // números: esquinas del mazo acotado 4-10; interior (piedra/niebla/oro)
+  // al azar; sin 6/8 pegados entre TODAS las fichas (el número del oro incluido)
+  const corners = cells.filter((c) => c.kind === 'var');
+  const interior = cells.filter((c) => c.kind !== 'desert' && c.kind !== 'var');
+  const goldCell = interior.find((c) => c.kind === 'gold');
+  const interiorSinOro = interior.filter((c) => c.kind !== 'gold');
   for (let attempt = 0; attempt < 800; attempt++) {
-    const cand = shuffle([...VOLCAN_NUMBERS], rng);
-    numeradas.forEach((c, i) => { if (c.kind !== 'gold') c.number = cand[i]; });
+    const cc = shuffle([...VOLCAN_CORNER_NUMBERS], rng);
+    corners.forEach((c, i) => { c.number = cc[i]; });
+    const ic = shuffle([...VOLCAN_INTERIOR_NUMBERS], rng);
+    goldCell.number = ic[0];
+    interiorSinOro.forEach((c, i) => { c.number = ic[i + 1]; });
     let ok = true;
     outer: for (let i = 0; i < cells.length; i++) {
       if (cells[i].number !== 6 && cells[i].number !== 8) continue;
@@ -417,10 +431,6 @@ export function generateOroBoard(seed) {
       }
     }
     if (ok) break;
-    if (attempt === 799) {
-      const last = shuffle([...VOLCAN_NUMBERS], rng);
-      numeradas.forEach((c, i) => { if (c.kind !== 'gold') c.number = last[i]; });
-    }
   }
 
   const hexes = [], vertices = [], edges = [];

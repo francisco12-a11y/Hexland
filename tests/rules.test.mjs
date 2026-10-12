@@ -828,9 +828,15 @@ test('volcán: grilla 71 de Fran (P/D/N/O fijos, R variable sin piedra)', () => 
       if (h.fog) assert.ok(esperado.N.has(key), `niebla en ${key}`);
       if (h.terrain === 'desert') assert.ok(esperado.D.has(key), `desierto en ${key}`);
       if (h.terrain === 'mountains' && !h.fog) assert.ok(esperado.P.has(key), `piedra en ${key}`);
-      if (h.terrain === 'gold') { assert.equal(key, esperado.O); assert.equal(h.number, 8); }
-      // los R no pueden ser piedra; bajo la niebla tampoco
-      if (esperado.R.has(key)) assert.ok(h.terrain !== 'mountains', 'R sin piedra');
+      if (h.terrain === 'gold') {
+        assert.equal(key, esperado.O);
+        assert.ok(h.number >= 2 && h.number <= 12 && h.number !== 7, 'ficha del oro aleatoria 2-12 sin 7');
+      }
+      // los R no pueden ser piedra y sus fichas van de 4 a 10 (balance de esquinas)
+      if (esperado.R.has(key)) {
+        assert.ok(h.terrain !== 'mountains', 'R sin piedra');
+        assert.ok(h.number >= 4 && h.number <= 10, `esquina con ficha ${h.number}`);
+      }
     }
     assert.equal(b.hexes.filter((h) => h.fog).length, 18);
     assert.equal(b.hexes.filter((h) => h.terrain === 'desert').length, 14);
@@ -863,7 +869,7 @@ test('oro: al producir te deja elegir recurso (pueblo 1, ciudad 2) y bloquea el 
   const gold = st.board.hexes.find((h) => h.terrain === 'gold');
   const vidOro = gold.vertices.find((v) =>
     !st.board.vertices[v].hexes.some((hid) => st.board.hexes[hid].fog)
-    && !st.board.vertices[v].hexes.some((hid) => hid !== gold.id && st.board.hexes[hid].number === 8));
+    && !st.board.vertices[v].hexes.some((hid) => hid !== gold.id && st.board.hexes[hid].number === gold.number));
   assert.ok(vidOro != null, 'el oro tiene al menos un vértice sin niebla');
   const primeraRonda = G.settlementSpots(st, 0, true);
   assert.ok(!primeraRonda.includes(vidOro), 'primera pasada: el oro está prohibido');
@@ -884,9 +890,9 @@ test('oro: al producir te deja elegir recurso (pueblo 1, ciudad 2) y bloquea el 
   G.placeSetupSettlement(st, vidOro);
   G.placeSetupRoad(st, G.setupRoadSpots(st, 0)[0]);
   for (const p of st.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
-  // pueblo junto al oro + tirada del 8 → pendiente de elección, sin carta directa
+  // pueblo junto al oro + tirada del número del oro → pendiente de elección
   const antes = { ...st.players[0].res };
-  forceRoll(st, 8);
+  forceRoll(st, gold.number);
   assert.deepEqual(st.pendingGold, [{ pid: 0, count: 1 }]);
   // el oro no paga carta directa: el badge del hex es de oro, no de un recurso
   assert.equal(st.lastGain[gold.id].res, 'gold');
@@ -910,7 +916,7 @@ test('oro: al producir te deja elegir recurso (pueblo 1, ciudad 2) y bloquea el 
     assert.ok(G.buildCity(st, goldV).ok, 'ciudad junto al oro');
     st.phase = 'roll';
     for (const p of st.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
-    forceRoll(st, 8);
+    forceRoll(st, gold.number);
     assert.deepEqual(st.pendingGold, [{ pid: 0, count: 2 }]);
     assert.ok(G.takeGold(st, 'wheat').ok);
     assert.deepEqual(st.pendingGold, [{ pid: 0, count: 1 }]);
