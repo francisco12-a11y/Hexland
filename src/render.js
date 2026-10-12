@@ -445,7 +445,7 @@ export function renderBoard(svg, st, targets, onPick) {
 
   svg.onclick = (ev) => {
     const t = ev.target.closest('[data-vid],[data-eid],[data-hid]');
-    if (!t) return;
+    if (!t) return onPick('sea', -1); // click fuera de todo: sirve para cancelar
     if (t.dataset.vid != null) onPick('vertex', Number(t.dataset.vid));
     else if (t.dataset.eid != null) onPick('edge', Number(t.dataset.eid));
     else if (t.dataset.hid != null) onPick('hex', Number(t.dataset.hid));

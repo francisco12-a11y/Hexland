@@ -385,3 +385,8 @@ body {
   #diceres .sum { font-size: 19px; }
   #diceres .lblroll, #diceres .lbl7 { font-size: 10.5px; }
 }
+
+/* prompt cancelable: cuando hay un modo de construcción activo, el pill
+   funciona como botón para deseleccionar */
+#prompt.cancelable { cursor: pointer; }
+#prompt.cancelable::after { content: "  ✕"; opacity: 0.5; font-weight: 400; }

@@ -108,7 +108,10 @@ function revealByRoad(st, eid) {
     st.revealed.push(hid);
     const hex = st.board.hexes[hid];
     const ficha = hex.number ? ` con ficha ${hex.number}` : '';
-    log(st, `🌫️ ${p.name} descubrió ${FOG_TERRAIN_LABEL[hex.terrain] || hex.terrain}${ficha}.`);
+    // recompensa de descubrimiento: 1 recurso del hex revelado
+    const res = TERRAIN_RES[hex.terrain];
+    log(st, `🌫️ ${p.name} descubrió ${FOG_TERRAIN_LABEL[hex.terrain] || hex.terrain}${ficha}${res ? ` (+1 ${RES_EMOJI[res]})` : ''}.`);
+    if (res) p.res[res]++;
   }
 }
 

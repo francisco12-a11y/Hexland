@@ -759,3 +759,33 @@ test('niebla: un camino que toca niebla revela el hex (y habilita poblar ahí)',
     }
   }
 });
+
+test('niebla: recompensa de descubrimiento — quien revela se lleva 1 recurso del hex', () => {
+  const st = G.newGame(['A', 'B'], 7, null, 'niebla');
+  while (st.phase === 'setup') {
+    const pid = st.setupQueue[st.setupIdx];
+    G.placeSetupSettlement(st, G.settlementSpots(st, pid, true)[0]);
+    G.placeSetupRoad(st, G.setupRoadSpots(st, pid)[0]);
+  }
+  st.phase = 'main';
+  const p = st.players[0];
+  for (const r of G.RESOURCES) p.res[r] = 10;
+  const before = { ...p.res };
+  // construye hasta revelar algo
+  let built = 0;
+  for (let i = 0; i < 30 && st.revealed.length === 0; i++) {
+    const spot = G.roadSpots(st, 0).find((eid) =>
+      st.board.edges[eid].hexes.some((hid) => st.board.hexes[hid].fog && !st.revealed.includes(hid)))
+      || G.roadSpots(st, 0)[0];
+    if (spot == null) break;
+    if (G.buildRoad(st, spot).ok) built++;
+  }
+  assert.ok(st.revealed.length > 0);
+  const gained = st.revealed.map((hid) => G.TERRAIN_RES[st.board.hexes[hid].terrain]);
+  const expected = { ...before };
+  expected.wood -= built; // cada camino cuesta 1 madera + 1 ladrillo
+  expected.brick -= built;
+  for (const r of gained) if (r) expected[r]++;
+  assert.deepEqual(p.res, expected, 'cada hex revelado paga +1 de su recurso');
+  assert.ok(st.log.some((l) => l.includes('(+1')), 'log con la recompensa');
+});

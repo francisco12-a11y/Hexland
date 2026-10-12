@@ -638,6 +638,10 @@ function renderPrompt() {
     msg = `🃏 Esperando descartes…`;
   }
   pr.textContent = msg;
+  // con modo de construcción activo el pill es un botón de cancelar
+  const cancelable = !!mode && game.phase === 'main' && !waiting;
+  pr.classList.toggle('cancelable', cancelable);
+  pr.onclick = cancelable ? () => { mode = null; renderAll(); } : null;
 }
 
 let flashTimer = null;
@@ -656,10 +660,20 @@ const modeHint = (m) => (m.kind === 'robber' ? 'tocá un hexágono' : MODE_HINT[
 
 function onPick(kind, id) {
   if (!game) return;
+  // click en el mar: cancela el modo de construcción (fuera del setup)
+  if (kind === 'sea') {
+    if (mode && game.phase === 'main') { mode = null; renderAll(); }
+    return;
+  }
   if (session.online) return onlinePick(kind, id);
   const wasSetupRoad = game.phase === 'setup' && kind === 'edge' && mode?.kind === 'road';
   const r = pick(game, kind, id);
-  if (!r.ok) { if (!r.silent) flash(r.err); return; }
+  if (!r.ok) {
+    // en fase main con un modo activo, tocar un lugar inválido = cambiar de opinión
+    if (game.phase === 'main' && mode) { mode = null; renderAll(); return; }
+    if (!r.silent) flash(r.err);
+    return;
+  }
   if (game.phase === 'over') { mode = null; renderAll(); showWin(); return; }
   if (game.phase === 'setup') {
     mode = kind === 'vertex' ? { kind: 'road', setup: true } : { kind: 'settlement', setup: true };
@@ -718,6 +732,9 @@ function onlinePick(kind, id) {
       act('buildCity', [id]).then((r) => { if (r.ok) { mode = null; renderAll(); } else flash(r.err); });
     } else if (kind === 'edge' && roadOk) {
       act('buildRoad', [id]).then((r) => { if (r.ok) { mode = game.freeRoads > 0 ? { kind: 'road', setup: false } : null; renderAll(); } else flash(r.err); });
+    } else if (mode && g.freeRoads === 0) {
+      mode = null; // click inválido con modo activo = cancelar
+      renderAll();
     }
   }
 }
