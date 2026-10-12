@@ -119,7 +119,7 @@ export function renderBoard(svg, st, targets, onPick) {
     el('polygon', { points: hexPoints(h) }, cp);
     const g = el('g', { 'clip-path': `url(#${clipId})` }, gHex);
     el('image', {
-      href: `tiles/${h.terrain}.png`,
+      href: `tiles/${h.terrain}.png?v=2`,
       x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1),
       width: TW, height: TH,
       preserveAspectRatio: 'xMidYMid slice',
@@ -148,14 +148,13 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
-  // number tokens: placa crema que cubre la ficha horneada del tile + carta
+  // number tokens: carta blanca sobre el claro del tile
   const gNum = el('g', { 'pointer-events': 'none', filter: 'url(#f-tok)' }, svg);
   for (const h of st.board.hexes) {
     if (!h.number) continue;
     const red = h.number === 6 || h.number === 8;
     const g = el('g', { transform: `translate(${h.x} ${h.y})` }, gNum);
-    el('rect', { x: -23, y: -30, width: 46, height: 60, rx: 12, fill: '#f6efdc' }, g);
-    el('rect', { x: -17, y: -18, width: 34, height: 40, rx: 9, fill: '#fdfcf7', stroke: '#d8d2c2', 'stroke-width': 1 }, g);
+    el('rect', { x: -17, y: -20, width: 34, height: 40, rx: 9, fill: '#fdfcf7', stroke: '#d8d2c2', 'stroke-width': 1 }, g);
     el('text', {
       y: 1, 'text-anchor': 'middle', 'font-size': 15, 'font-weight': 800,
       fill: red ? '#c0392b' : '#33383d', 'font-family': 'system-ui',
