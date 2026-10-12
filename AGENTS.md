@@ -152,4 +152,4 @@ Keep improving toward that look; do not copy their assets.
    CGNAT networks, state filtering (don't leak other hands to clients),
    host migration / reconnect.
 2. Player-to-player trading (offers/counteroffers).
-3. Dev cards, knight, largest army, longest road → then `WIN_VP = 10`.
+3. ~~Dev cards, largest army, longest road~~ (done 2026-10-12, `WIN_VP = 10`).
