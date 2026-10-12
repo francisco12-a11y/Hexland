@@ -273,20 +273,20 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
-  // number tokens: carta chica en el tercio inferior, deja el ícono visible
+  // number tokens: carta centrada en el hex
   const gNum = el('g', { 'pointer-events': 'none', filter: 'url(#f-tok)' }, svg);
   for (const h of st.board.hexes) {
     if (!h.number) continue;
     const red = h.number === 6 || h.number === 8;
-    const g = el('g', { transform: `translate(${h.x} ${h.y + 14})` }, gNum);
-    el('rect', { x: -15, y: 0, width: 30, height: 36, rx: 8, fill: '#fdfcf7', stroke: '#c9bfa8', 'stroke-width': 1.5 }, g);
+    const g = el('g', { transform: `translate(${h.x} ${h.y})` }, gNum);
+    el('rect', { x: -15, y: -18, width: 30, height: 36, rx: 8, fill: '#fdfcf7', stroke: '#c9bfa8', 'stroke-width': 1.5 }, g);
     el('text', {
-      y: 22, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 800,
+      y: 4, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 800,
       fill: red ? '#c0392b' : '#33383d', 'font-family': 'system-ui',
     }, g).textContent = h.number;
     const pips = PIPS[h.number] || 0;
     for (let i = 0; i < pips; i++) {
-      el('circle', { cx: (i - (pips - 1) / 2) * 3, cy: 28, r: 1.2, fill: '#c0392b' }, g);
+      el('circle', { cx: (i - (pips - 1) / 2) * 3, cy: 10, r: 1.2, fill: '#c0392b' }, g);
     }
   }
 
