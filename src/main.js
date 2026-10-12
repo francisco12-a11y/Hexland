@@ -413,12 +413,65 @@ function targetsForMode() {
 
 function exitTradeMode() { tradeMode = null; renderAll(); }
 
+// barra flotante sobre el footer: tu selección como cartas + qué pedís
+function renderTradeBar() {
+  const bar = document.querySelector('#tradebar');
+  if (!bar || !tradeMode) return;
+  const p = mePlayer();
+  const hand = expandHand(p);
+  const selCards = [...tradeMode.giveSel].map((i) => hand[i]);
+  const totalGive = selCards.length;
+  const totalGet = G.RESOURCES.reduce((a, r) => a + (tradeMode.get[r] || 0), 0);
+  const chips = G.RESOURCES.map((r) => {
+    const n = tradeMode.get[r] || 0;
+    return `<span class="tb-chip ${n ? 'on' : ''}"><b>${G.RES_EMOJI[r]}</b><span class="tb-n">${n}</span>
+      <span class="tb-btns"><button data-r="${r}" data-d="1" ${n >= 9 ? 'disabled' : ''}>+</button>
+      <button data-r="${r}" data-d="-1" ${n === 0 ? 'disabled' : ''}>−</button></span></span>`;
+  }).join('');
+  bar.innerHTML = `
+    <div class="tb-row">
+      <span class="tb-label">Das</span>
+      <span class="tb-cards">${selCards.map((r) => `<span class="rescard ${r} tb-mini">${G.RES_EMOJI[r]}</span>`).join('') || '<em class="tb-empty">tocá cartas de tu mano</em>'}</span>
+    </div>
+    <div class="tb-row">
+      <span class="tb-label">Pedís</span>
+      ${chips}
+    </div>
+    <div class="tb-row tb-actions">
+      <button class="btn" id="tb-cancel">Cancelar</button>
+      <button class="btn primary" id="tb-ok" ${totalGive === 0 || totalGet === 0 ? 'disabled' : ''}>Proponer 🤝</button>
+    </div>`;
+  bar.querySelectorAll('.tb-btns button').forEach((b) => {
+    b.onclick = () => {
+      const r = b.dataset.r;
+      tradeMode.get[r] = Math.max(0, (tradeMode.get[r] || 0) + Number(b.dataset.d));
+      renderAll();
+    };
+  });
+  bar.querySelector('#tb-cancel').onclick = exitTradeMode;
+  bar.querySelector('#tb-ok').onclick = () => {
+    const give = giveFromSel(p, tradeMode.giveSel);
+    const get = {};
+    for (const r of G.RESOURCES) if (tradeMode.get[r]) get[r] = tradeMode.get[r];
+    const done = (res) => {
+      tradeMode = null;
+      if (!res.ok) return flash(res.err);
+      if (session.online) renderAll();
+      else showOfferWaiting();
+    };
+    if (session.online) act('proposeTrade', [give, get]).then(done);
+    else done(G.proposeTrade(game, give, get));
+  };
+}
+
 function renderAll() {
   if (!game) return;
   // el modo de colocación no sobrevive al setup (quedaba residual y el prompt
   // decía "elegí un lugar libre" en el primer turno principal)
   if (mode?.setup && game.phase !== 'setup') mode = null;
   if (tradeMode && (game.phase !== 'main' || !myTurn())) tradeMode = null;
+  const tb = document.querySelector('#tradebar');
+  if (tb) tb.hidden = !tradeMode;
   renderBoard(svg(), game, targetsForMode(), onPick);
   renderChips();
   renderLog();
@@ -653,51 +706,8 @@ function renderPieceButtons() {
     return `<button class="pbtn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" title="${title}" ${dis ? 'disabled' : ''}>${icon}<span class="n">×${left[kind]}</span></button>`;
   };
   if (tradeMode) {
-    const give = giveFromSel(p, tradeMode.giveSel);
-    const detGive = G.RESOURCES.filter((r) => give[r])
-      .map((r) => `${G.RES_EMOJI[r]}×${give[r]}`).join(' ') || '—';
-    const chips = G.RESOURCES.map((r) => {
-      const n = tradeMode.get[r] || 0;
-      return `<span class="tpchip"><b>${G.RES_EMOJI[r]}</b><span class="tpn">${n}</span>
-        <span class="tpbtns"><button data-r="${r}" data-d="1" ${n >= 9 ? 'disabled' : ''}>+</button>
-        <button data-r="${r}" data-d="-1" ${n === 0 ? 'disabled' : ''}>−</button></span></span>`;
-    }).join('');
-    const totalGive = G.RESOURCES.reduce((a, r) => a + (give[r] || 0), 0);
-    const totalGet = G.RESOURCES.reduce((a, r) => a + (tradeMode.get[r] || 0), 0);
-    box.innerHTML = `
-      <div id="tradepanel">
-        <div class="tp-row">
-          <span class="tp-title">Dás: <b id="tp-give">${detGive}</b> <small>(tocá tu mano)</small></span>
-          <span class="tp-title">Pedís:</span>
-          <span class="tp-chips">${chips}</span>
-        </div>
-        <div class="tp-row tp-actions">
-          <button class="btn" id="tp-cancel">Cancelar</button>
-          <button class="btn primary" id="tp-ok" ${totalGive === 0 || totalGet === 0 ? 'disabled' : ''}>Proponer 🤝</button>
-        </div>
-      </div>`;
-    box.querySelectorAll('.tpbtns button').forEach((b) => {
-      b.onclick = () => {
-        const r = b.dataset.r;
-        tradeMode.get[r] = Math.max(0, (tradeMode.get[r] || 0) + Number(b.dataset.d));
-        renderAll();
-      };
-    });
-    box.querySelector('#tp-cancel').onclick = exitTradeMode;
-    box.querySelector('#tp-ok').onclick = () => {
-      const get = {};
-      for (const r of G.RESOURCES) {
-        if (tradeMode.get[r]) get[r] = tradeMode.get[r];
-      }
-      const done = (r) => {
-        tradeMode = null;
-        if (!r.ok) return flash(r.err);
-        if (session.online) { renderAll(); }
-        else showOfferWaiting();
-      };
-      if (session.online) act('proposeTrade', [give, get]).then(done);
-      else { const r = G.proposeTrade(game, give, get); done(r); }
-    };
+    box.innerHTML = '';
+    renderTradeBar();
     return;
   }
   const devLeft = game.devDeck.length;

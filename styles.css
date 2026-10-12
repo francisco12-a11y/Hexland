@@ -417,8 +417,36 @@ body {
 #tradepanel .tpbtns button:disabled { opacity: 0.35; cursor: not-allowed; }
 #tradepanel .tp-actions { margin-top: 2px; }
 
-/* mano en modo dar: cartas levantadas cuando están ofrecidas */
-#hand.giving .handgive { cursor: pointer; opacity: 0.55; }
-#hand.giving .handgive.sel-give { opacity: 1; outline: 3px solid var(--accent); transform: translateY(-8px); }
-#hand.giving .handgive:hover { transform: translateY(-4px); }
+/* mano en modo dar: las ofrecidas se atenúan (van a la barra de arriba) */
+#hand.giving .handgive { cursor: pointer; opacity: 0.45; }
+#hand.giving .handgive.sel-give { opacity: 0.25; outline: 2px dashed rgba(255, 255, 255, 0.5); }
 #hand.giving .devcard, #hand.giving .rescard:not(.handgive) { display: none; }
+
+/* barra de intercambio flotante, arriba del footer */
+#tradebar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 12px; z-index: 7;
+  background: var(--panel); border: 1px solid #2a4a7d; border-radius: 16px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+  padding: 10px 16px; max-width: min(94vw, 760px);
+  display: flex; flex-direction: column; gap: 8px;
+}
+#tradebar .tb-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+#tradebar .tb-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; min-width: 42px; text-align: right; }
+#tradebar .tb-cards { display: flex; gap: 4px; flex-wrap: wrap; min-height: 46px; align-items: center; }
+#tradebar .tb-mini { width: 34px; height: 46px; font-size: 18px; }
+#tradebar .tb-empty { color: var(--muted); font-size: 13px; }
+#tradebar .tb-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--panel2); border: 1px solid #2a4a7d; border-radius: 10px;
+  padding: 4px 7px; font-size: 15px;
+}
+#tradebar .tb-chip.on { border-color: var(--accent); }
+#tradebar .tb-n { min-width: 14px; text-align: center; font-weight: 800; color: var(--accent); }
+#tradebar .tb-btns { display: inline-flex; flex-direction: column; gap: 1px; }
+#tradebar .tb-btns button {
+  background: var(--panel); color: var(--ink); border: 1px solid #2a4a7d;
+  border-radius: 4px; font-size: 10px; line-height: 1; padding: 1px 5px; cursor: pointer;
+}
+#tradebar .tb-btns button:disabled { opacity: 0.35; cursor: not-allowed; }
+#tradebar .tb-actions { margin-top: 2px; }
