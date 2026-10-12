@@ -268,7 +268,7 @@ body {
 .prodflash { opacity: 0; animation: hexblink 0.7s ease-in-out 3; }
 @keyframes hexblink {
   0% { opacity: 0; }
-  45% { opacity: 0.22; }
+  45% { opacity: 0.35; }
   100% { opacity: 0; }
 }
 

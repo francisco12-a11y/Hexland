@@ -364,6 +364,9 @@ function targetsForMode() {
 
 function renderAll() {
   if (!game) return;
+  // el modo de colocación no sobrevive al setup (quedaba residual y el prompt
+  // decía "elegí un lugar libre" en el primer turno principal)
+  if (mode?.setup && game.phase !== 'setup') mode = null;
   renderBoard(svg(), game, targetsForMode(), onPick);
   renderChips();
   renderLog();
@@ -501,19 +504,23 @@ function renderHand() {
   const resHtml = G.RESOURCES.filter((r) => p.res[r] > 0).map((r) =>
     `<span class="rescard big ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>×${p.res[r]}</small></span>`
   ).join('');
-  // cartas de desarrollo con su índice original; jugables solo en tu main,
-  // una por turno y nunca la comprada este turno (los PV cuentan solos)
+  // cartas de desarrollo con su índice original. Ninguna va disabled: si no
+  // es jugable, el click explica por qué (el motor sigue siendo la autoridad).
+  // Los PV no se juegan nunca: cuentan solos.
   const canBase = game.phase === 'main' && myTurn() && !game.devPlayed;
   const devHtml = (p.devs || []).map((c, i) => {
     const can = canBase && c.t !== 'vp' && c.turn < game.turn;
+    const why = c.t === 'vp'
+      ? ' (cuenta 1 PV sola, no se juega)'
+      : c.turn >= game.turn ? ' (recién comprada: jugable en tu próximo turno)' : '';
     return `<button class="devcard ${can ? 'canplay' : ''}" data-dev="${i}" data-t="${c.t}"
-      title="${G.DEV_NAME[c.t]}${c.t === 'vp' ? ' (cuenta solo)' : can ? '' : ' — todavía no jugable'}" ${can ? '' : 'disabled'}>
+      title="${G.DEV_NAME[c.t]}${why}">
       <span class="dico">${G.DEV_EMOJI[c.t]}</span><small>${DEV_SHORT[c.t]}</small></button>`;
   }).join('');
   $('#hand').innerHTML = (resHtml || devHtml)
     ? resHtml + devHtml
     : `<p class="empty">Sin cartas 🃏</p>`;
-  $('#hand').querySelectorAll('.devcard.canplay').forEach((b) => {
+  $('#hand').querySelectorAll('.devcard').forEach((b) => {
     b.onclick = () => playDevCard(Number(b.dataset.dev), b.dataset.t);
   });
 }
@@ -521,8 +528,9 @@ function renderHand() {
 // juega la carta idx del tipo t: knight y caminos salen derecho; monopolio y
 // abundancia abren su modal para elegir recursos
 function playDevCard(idx, t) {
+  if (t === 'vp') return flash('🏆 Los Puntos de Victoria cuentan solos, no se juegan');
   const finish = (r) => {
-    if (!r.ok) return flash(r.err);
+    if (!r.ok) return flash(r.err); // ej: "La compraste este turno: jugala en el próximo"
     if (t === 'roadbuilding') mode = { kind: 'road', setup: false };
     renderAll();
     if (game.phase === 'over') showWin();

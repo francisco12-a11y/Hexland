@@ -68,6 +68,7 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null) {
     dice: null, turn: 1, winner: null,
     lastProduced: [], lastGain: {},
     stealCandidates: [], // a quién puede robar quien movió al ladrón (deriva UI)
+    lastRollWas7: false, // regla de casa: no permite dos 7 seguidos
     devPlayed: false,    // una sola carta de desarrollo por turno
     freeRoads: 0,        // caminos gratis pendientes (construcción de caminos)
     largestArmy: null, largestArmySize: 0,
@@ -194,10 +195,19 @@ export function placeSetupRoad(st, eid) {
 
 export function rollDice(st) {
   if (st.phase !== 'roll') return err('No podés tirar ahora');
-  const d1 = 1 + Math.floor(st.rng() * 6);
-  const d2 = 1 + Math.floor(st.rng() * 6);
+  // regla de casa: el 7 no sale dos veces seguidas (se repite el tiro)
+  let d1, d2, sum, attempts = 0;
+  do {
+    d1 = 1 + Math.floor(st.rng() * 6);
+    d2 = 1 + Math.floor(st.rng() * 6);
+    sum = d1 + d2;
+    attempts++;
+    if (sum === 7 && st.lastRollWas7 && attempts > 1) {
+      log(st, '🎲 ¡Siete otra vez! Se repite el tiro.');
+    }
+  } while (sum === 7 && st.lastRollWas7 && attempts < 6);
+  st.lastRollWas7 = sum === 7;
   st.dice = [d1, d2];
-  const sum = d1 + d2;
   st.lastProduced = st.board.hexes.filter((h) => h.number === sum).map((h) => h.id);
   st.lastGain = {};
   log(st, `🎲 ${st.players[st.current].name} tiró ${d1} + ${d2} = ${sum}.`);

@@ -607,6 +607,32 @@ test('colocación: tras el camino de un jugador, el siguiente arranca por asenta
   }
 });
 
+test('el 7 no sale dos veces seguidas (se repite el tiro)', () => {
+  const st = startGame(7);
+  for (const p of st.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
+  const seq = [];
+  st.rng = () => (seq.length ? seq.shift() : 0.5);
+  // primera tirada: forzar 7
+  seq.push(5.5 / 6, 0.5 / 6);
+  const r1 = G.rollDice(st);
+  assert.equal(r1.sum, 7);
+  assert.equal(st.lastRollWas7, true);
+  // segunda tirada: forzar 7 constantemente → el motor re-tira hasta que no sea 7
+  st.phase = 'roll'; // salteamos el robo del primer 7
+  st.rng = () => 0.5; // 4+4 = 8 siempre
+  const r2 = G.rollDice(st);
+  assert.equal(r2.sum, 8);
+  assert.equal(st.lastRollWas7, false);
+  // y si el 7 no salió antes, un 7 es aceptado normal
+  st.lastRollWas7 = false;
+  st.phase = 'roll';
+  const seq7 = [5.5 / 6, 0.5 / 6];
+  st.rng = () => (seq7.length ? seq7.shift() : 0.5);
+  const r3 = G.rollDice(st);
+  assert.equal(r3.sum, 7);
+  assert.equal(st.lastRollWas7, true);
+});
+
 test('ladrón: stealCandidates viaja en el estado y se limpia al robar (deriva UI online)', () => {
   const st = startGame(7);
   for (const p of st.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
