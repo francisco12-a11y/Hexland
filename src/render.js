@@ -198,7 +198,18 @@ function hexPoints(h) {
  */
 export function renderBoard(svg, st, targets, onPick) {
   svg.innerHTML = '';
-  svg.setAttribute('viewBox', '-400 -360 800 720');
+  // el mapa niebla es más grande: viewBox a medida; el clásico queda fijo
+  let VB = { x: -400, y: -360, w: 800, h: 720 };
+  if (st.board.map === 'niebla') {
+    let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (const h of st.board.hexes) {
+      minX = Math.min(minX, h.x); maxX = Math.max(maxX, h.x);
+      minY = Math.min(minY, h.y); maxY = Math.max(maxY, h.y);
+    }
+    const M = 120;
+    VB = { x: minX - M, y: minY - M, w: maxX - minX + 2 * M, h: maxY - minY + 2 * M };
+  }
+  svg.setAttribute('viewBox', `${VB.x} ${VB.y} ${VB.w} ${VB.h}`);
 
   // defs: gradientes por terreno, arena y sombras
   const defs = el('defs', {}, svg);
@@ -208,6 +219,12 @@ export function renderBoard(svg, st, targets, onPick) {
     el('stop', { offset: '55%', 'stop-color': base }, lg);
     el('stop', { offset: '100%', 'stop-color': shade(base, -12) }, lg);
   }
+  const lagoonLg = el('linearGradient', { id: 'tg-lagoon', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el('stop', { offset: '0%', 'stop-color': '#6cb2e2' }, lagoonLg);
+  el('stop', { offset: '100%', 'stop-color': '#3f7cb8' }, lagoonLg);
+  const fogLg = el('linearGradient', { id: 'tg-fog', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el('stop', { offset: '0%', 'stop-color': '#b6c3d2' }, fogLg);
+  el('stop', { offset: '100%', 'stop-color': '#8b9cb0' }, fogLg);
   const sandLg = el('linearGradient', { id: 'tg-sand', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
   el('stop', { offset: '0%', 'stop-color': '#f6e8c3' }, sandLg);
   el('stop', { offset: '100%', 'stop-color': '#e6cf9e' }, sandLg);
@@ -217,7 +234,7 @@ export function renderBoard(svg, st, targets, onPick) {
   el('feDropShadow', { dx: 0, dy: 2, stdDeviation: 1.5, 'flood-color': '#08243e', 'flood-opacity': 0.45 }, fPiece);
 
   // sea
-  el('rect', { x: -400, y: -360, width: 800, height: 720, fill: SEA }, svg);
+  el('rect', { x: VB.x, y: VB.y, width: VB.w, height: VB.h, fill: SEA }, svg);
   for (const [x, y, e] of DOODLES) {
     el('text', { x, y, 'font-size': 40, opacity: 0.08, 'text-anchor': 'middle' }, svg).textContent = e;
   }
@@ -244,22 +261,53 @@ export function renderBoard(svg, st, targets, onPick) {
   }
   const gHex = el('g', {}, svg);
   for (const h of st.board.hexes) {
+    const hidden = !!h.fog && !(st.revealed || []).includes(h.id);
     const clipId = `hc-${h.id}`;
     const cp = el('clipPath', { id: clipId }, defs);
     el('polygon', { points: hexPoints(h) }, cp);
     const g = el('g', { 'clip-path': `url(#${clipId})` }, gHex);
-    el('image', {
-      href: `tiles/${h.terrain}.png?v=3`,
-      x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1),
-      width: TW, height: TH,
-      preserveAspectRatio: 'xMidYMid slice',
-    }, g);
+    if (h.terrain === 'lagoon') {
+      // laguna central: agua clara
+      el('rect', {
+        x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1), width: TW, height: TH,
+        fill: 'url(#tg-lagoon)',
+      }, g);
+    } else if (hidden) {
+      // niebla sin descubrir: nubes y signo de pregunta
+      el('rect', {
+        x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1), width: TW, height: TH,
+        fill: 'url(#tg-fog)',
+      }, g);
+      el('g', { fill: '#e9eef4', opacity: 0.85 }, g).innerHTML = `
+        <ellipse cx="${h.x - 18}" cy="${h.y - 12}" rx="22" ry="12"/>
+        <ellipse cx="${h.x + 16}" cy="${h.y - 2}" rx="25" ry="13"/>
+        <ellipse cx="${h.x - 6}" cy="${h.y + 14}" rx="21" ry="12"/>`;
+      el('text', {
+        x: h.x, y: h.y + 8, 'text-anchor': 'middle', 'font-size': 26,
+        'font-weight': 800, fill: '#5a6b80', 'font-family': 'system-ui',
+      }, g).textContent = '?';
+    } else {
+      el('image', {
+        href: `tiles/${h.terrain}.png?v=3`,
+        x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1),
+        width: TW, height: TH,
+        preserveAspectRatio: 'xMidYMid slice',
+      }, g);
+    }
     el('polygon', {
       points: hexPoints(h), fill: 'none',
-      stroke: shade(TERRAIN_FILL[h.terrain], -30),
+      stroke: hidden ? '#77879b'
+        : h.terrain === 'lagoon' ? '#bfe3f7'
+        : shade(TERRAIN_FILL[h.terrain], -30),
       'stroke-width': 4, 'stroke-linejoin': 'round',
       'data-hid': h.id,
     }, gHex);
+  }
+
+  // velero decorativo en la laguna (mapa niebla)
+  const lag = st.board.hexes.find((h) => h.terrain === 'lagoon');
+  if (lag) {
+    el('text', { x: lag.x, y: lag.y + 7, 'font-size': 20, 'text-anchor': 'middle', opacity: 0.9 }, svg).textContent = '⛵';
   }
 
   // flashing border on every hex matching the last roll (white on navy: visible on any terrain)
@@ -273,10 +321,11 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
-  // number tokens: carta centrada en el hex
+  // number tokens: carta centrada en el hex (oculta en niebla sin descubrir)
   const gNum = el('g', { 'pointer-events': 'none', filter: 'url(#f-tok)' }, svg);
   for (const h of st.board.hexes) {
     if (!h.number) continue;
+    if (h.fog && !(st.revealed || []).includes(h.id)) continue;
     const red = h.number === 6 || h.number === 8;
     const g = el('g', { transform: `translate(${h.x} ${h.y})` }, gNum);
     el('rect', { x: -15, y: -18, width: 30, height: 36, rx: 8, fill: '#fdfcf7', stroke: '#c9bfa8', 'stroke-width': 1.5 }, g);
@@ -311,16 +360,27 @@ export function renderBoard(svg, st, targets, onPick) {
   el('text', { y: 4.5, 'text-anchor': 'middle', 'font-size': 14 }, gRob).textContent = '🦹';
 
   // ports: muelle en V — desde el ápice en el mar hacia CADA uno de los dos
-  // vértices de acceso; cartel sobre el ápice y velero más afuera
+  // vértices de acceso; cartel sobre el ápice y velero más afuera.
+  // Los puertos chicos (laguna del mapa niebla) usan cartel compacto y sin velero.
   const gPort = el('g', { 'pointer-events': 'none' }, svg);
   for (const p of st.board.ports) {
     const [va, vb] = p.vids.map((vid) => st.board.vertices[vid]);
+    const W = p.small ? 5 : 8;
     const leg = (v) => {
-      el('line', { x1: v.x, y1: v.y, x2: p.px, y2: p.py, stroke: '#a4713d', 'stroke-width': 8, 'stroke-linecap': 'round' }, gPort);
-      el('line', { x1: v.x, y1: v.y, x2: p.px, y2: p.py, stroke: '#8a5a2b', 'stroke-width': 8, 'stroke-linecap': 'round', 'stroke-dasharray': '3 10' }, gPort);
+      el('line', { x1: v.x, y1: v.y, x2: p.px, y2: p.py, stroke: '#a4713d', 'stroke-width': W, 'stroke-linecap': 'round' }, gPort);
+      el('line', { x1: v.x, y1: v.y, x2: p.px, y2: p.py, stroke: '#8a5a2b', 'stroke-width': W, 'stroke-linecap': 'round', 'stroke-dasharray': p.small ? '2 7' : '3 10' }, gPort);
     };
     leg(va);
     leg(vb);
+    if (p.small) {
+      const g = el('g', { transform: `translate(${p.sx.toFixed(1)} ${p.sy.toFixed(1)})` }, gPort);
+      el('rect', { x: -18, y: -9, width: 36, height: 18, rx: 5, fill: '#fdfcf7', stroke: '#c9b48a', 'stroke-width': 1.2 }, g);
+      el('text', {
+        y: 1, 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': 9.5,
+        'font-weight': 800, fill: '#3d3325', 'font-family': 'system-ui',
+      }, g).textContent = `2:1 ${portEmoji(p.type)}`;
+      continue;
+    }
     const g = el('g', { transform: `translate(${p.sx.toFixed(1)} ${p.sy.toFixed(1)})` }, gPort);
     el('rect', { x: -26, y: -13, width: 52, height: 26, rx: 7, fill: '#fdfcf7', stroke: '#c9b48a', 'stroke-width': 1.5 }, g);
     const label = p.type === '3:1' ? '3:1 ❓' : `2:1 ${portEmoji(p.type)}`;

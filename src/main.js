@@ -21,6 +21,7 @@ const session = {
   started: false,     // online: game already created
 };
 let lobbyTab = 'local';
+let mapPick = 'clasico';
 const pendingActs = new Map(); // rid → resolve (client waiting host result)
 let ridSeq = 1;
 
@@ -51,6 +52,11 @@ function buildLobby() {
   });
   $('#localbox').hidden = lobbyTab !== 'local';
   $('#onlinebox').hidden = lobbyTab !== 'online';
+  // selector de mapa: visible en ambas pestañas (en online lo usa el host)
+  document.querySelectorAll('#mapseg button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.map === mapPick);
+    b.onclick = () => { mapPick = b.dataset.map; buildLobby(); };
+  });
   if (lobbyTab === 'online') return; // el panel online es HTML estático
 
   const seg = $('#countseg');
@@ -96,7 +102,7 @@ function startGame() {
   const names = [...$('#names').querySelectorAll('input')].map((i) => i.value.trim());
   const seedRaw = $('#seed').value.trim();
   const seed = seedRaw ? Math.abs(parseInt(seedRaw, 10)) || 1 : undefined;
-  game = G.newGame(names, seed, colorPick.slice());
+  game = G.newGame(names, seed, colorPick.slice(), mapPick);
   mode = { kind: 'settlement', setup: true };
   shownDice = null;
   lastDiceKey = null;
@@ -323,7 +329,7 @@ function afterHostApply() {
 function startOnlineGame() {
   const names = session.lobby.map((l) => l.name);
   const seed = Math.floor(Math.random() * 2 ** 31);
-  game = G.newGame(names, seed);
+  game = G.newGame(names, seed, null, mapPick);
   session.myId = 0;
   session.started = true;
   mode = { kind: 'settlement', setup: true };
@@ -376,7 +382,8 @@ function renderAll() {
   renderPieceButtons();
   renderPrompt();
   updateDice();
-  $('#seedchip').textContent = `⬡ semilla ${game.seed} · turno ${game.turn}`;
+  const mapLbl = game.map === 'niebla' ? ' · 🌫️ niebla' : '';
+  $('#seedchip').textContent = `⬡${mapLbl} · semilla ${game.seed} · turno ${game.turn}`;
 }
 
 const DICE_PIPS = {

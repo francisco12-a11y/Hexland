@@ -54,7 +54,8 @@ function axialDist(a, b) {
   return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
 }
 
-export function generateBoard(seed) {
+export function generateBoard(seed, map = 'clasico') {
+  if (map === 'niebla') return generateFogBoard(seed);
   const rng = mulberry32(seed);
   const terrains = shuffle([...TERRAIN_DECK], rng);
 
@@ -186,4 +187,160 @@ export function generateBoard(seed) {
   });
 
   return { hexes, vertices, edges, ports, coast, robber: desert.id, seed };
+}
+
+// ---------- mapa niebla: isla de madera + laguna con puertos + 2 anillos ocultos ----------
+
+// isla de madera: anillos 1 y 2 alrededor del centro (18 hexes)
+const WOOD_DIST = 2;
+// niebla: anillos 3 y 4 (18 + 24 = 42 hexes ocultos)
+const FOG_DIST = 4;
+
+// recursos ocultos: solo los 4 que no están en la isla de madera
+const FOG_DECK = [
+  ...Array(11).fill('hills'),
+  ...Array(9).fill('mountains'),
+  ...Array(11).fill('fields'),
+  ...Array(11).fill('pasture'),
+];
+// 60 fichas para los 60 hexes con número (18 madera + 42 niebla):
+// tres mazos estándar + 6 medias (sin 7, no produce)
+const NUMBERS_60 = [...TOKENS, ...TOKENS, ...TOKENS, 3, 4, 5, 6, 8, 9];
+
+// asigna números evitando 6/8 pegados entre TODOS los hexes con ficha
+// (isla de madera + niebla). Si en 800 intentos no sale, deja sin restricción.
+function assignNumbers(cells, rng) {
+  const landIdx = cells.map((c, i) => (c.kind !== 'lagoon' ? i : -1)).filter((i) => i >= 0);
+  for (let attempt = 0; attempt < 800; attempt++) {
+    const pool = shuffle([...NUMBERS_60], rng);
+    landIdx.forEach((i, k) => { cells[i].number = pool[k]; });
+    let ok = true;
+    outer: for (let i = 0; i < cells.length; i++) {
+      if (cells[i].number !== 6 && cells[i].number !== 8) continue;
+      for (let j = i + 1; j < cells.length; j++) {
+        if ((cells[j].number === 6 || cells[j].number === 8) && axialDist(cells[i], cells[j]) === 1) {
+          ok = false; break outer;
+        }
+      }
+    }
+    if (ok) return cells.map((c) => c.number);
+  }
+  return cells.map((c) => c.number); // fallback sin restricción
+}
+
+export function generateFogBoard(seed) {
+  const rng = mulberry32(seed);
+  // celdas: laguna (agua, centro) + madera (anillos 1-2) + niebla (anillos 3-4)
+  const cells = [];
+  for (let r = -FOG_DIST; r <= FOG_DIST; r++) {
+    for (let q = Math.max(-FOG_DIST, -FOG_DIST - r); q <= Math.min(FOG_DIST, FOG_DIST - r); q++) {
+      const d = (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2;
+      if (d === 0) cells.push({ q, r, kind: 'lagoon', terrain: 'lagoon' });
+      else if (d <= WOOD_DIST) cells.push({ q, r, kind: 'land', terrain: 'forest' });
+      else cells.push({ q, r, kind: 'fog', terrain: 'fog', fog: true });
+    }
+  }
+  // recursos ocultos: baraja sobre los hexes de niebla (42 y 42, exacto)
+  const fogCells = cells.filter((c) => c.kind === 'fog');
+  shuffle([...FOG_DECK], rng).forEach((t, i) => { fogCells[i].terrain = t; });
+
+  // números (madera 18 fichas estándar + niebla 42 fichas), sin 6/8 pegados
+  const numbers = assignNumbers(cells, rng);
+
+  const hexes = [], vertices = [], edges = [];
+  const vMap = new Map(), eMap = new Map();
+  cells.forEach((cell, i) => {
+    const { x, y } = hexCenter(cell.q, cell.r);
+    const hex = {
+      id: i, q: cell.q, r: cell.r, x, y,
+      terrain: cell.terrain, number: numbers[i],
+      fog: !!cell.fog, vertices: [], edges: [],
+    };
+    const cornerIds = [];
+    for (let c = 0; c < 6; c++) {
+      const p = hexCorner(x, y, c);
+      const key = `${Math.round(p.x * 10)}|${Math.round(p.y * 10)}`;
+      if (!vMap.has(key)) {
+        const v = { id: vMap.size, x: p.x, y: p.y, hexes: [], edges: [] };
+        vMap.set(key, v); vertices.push(v);
+      }
+      const v = vMap.get(key);
+      v.hexes.push(hex.id);
+      hex.vertices.push(v.id);
+      cornerIds.push(v.id);
+    }
+    for (let c = 0; c < 6; c++) {
+      const a = cornerIds[c], b = cornerIds[(c + 1) % 6];
+      const key = `${Math.min(a, b)}-${Math.max(a, b)}`;
+      if (!eMap.has(key)) {
+        const e = { id: eMap.size, a: Math.min(a, b), b: Math.max(a, b), hexes: [] };
+        eMap.set(key, e); edges.push(e);
+      }
+      const e = eMap.get(key);
+      e.hexes.push(hex.id);
+      hex.edges.push(e.id);
+    }
+    hexes.push(hex);
+  });
+
+  for (const v of vertices) v.neighbors = [];
+  for (const e of edges) {
+    vertices[e.a].edges.push(e.id);
+    vertices[e.b].edges.push(e.id);
+    vertices[e.a].neighbors.push(e.b);
+    vertices[e.b].neighbors.push(e.a);
+  }
+
+  // costa exterior: ciclo de bordes con un solo hex (los bordes de laguna
+  // tienen 2, así que no entran y el ciclo queda limpio)
+  const perim = edges.filter((e) => e.hexes.length === 1);
+  const atVertex = new Map();
+  for (const e of perim) {
+    for (const vid of [e.a, e.b]) {
+      if (!atVertex.has(vid)) atVertex.set(vid, []);
+      atVertex.get(vid).push(e.id);
+    }
+  }
+  const cycle = [perim[0].id];
+  let prev = perim[0], curV = perim[0].b;
+  while (cycle.length < perim.length) {
+    const nextId = atVertex.get(curV).find((eid) => eid !== prev.id);
+    if (nextId == null) break; // no debería pasar: el perímetro es un ciclo
+    cycle.push(nextId);
+    prev = edges[nextId];
+    curV = prev.a === curV ? prev.b : prev.a;
+  }
+  const coast = [];
+  {
+    let v = perim[0].a;
+    for (const eid of cycle) {
+      coast.push(v);
+      const e = edges[eid];
+      v = e.a === v ? e.b : e.a;
+    }
+  }
+
+  // puertos: 6 × 2:1 madera, uno por borde de la laguna, mirando al agua
+  const lagoon = hexes.find((h) => h.terrain === 'lagoon');
+  const ports = lagoon.edges.map((eid, i) => {
+    const e = edges[eid];
+    const a = vertices[e.a], b = vertices[e.b];
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    let nx = lagoon.x - mx, ny = lagoon.y - my;
+    const len = Math.hypot(nx, ny) || 1;
+    nx /= len; ny /= len;
+    return {
+      id: i, type: 'wood', vids: [e.a, e.b], small: true,
+      mx, my, nx, ny,
+      px: mx + nx * 20, py: my + ny * 20, // ápice del muelle, dentro de la laguna
+      sx: mx + nx * 10, sy: my + ny * 10, // cartel junto a la orilla (no en el centro)
+      ix: lagoon.x, iy: lagoon.y,         // el velero va en el centro de la laguna
+    };
+  });
+
+  // el ladrón arranca en un hex de madera (elegido con la semilla)
+  const wood = hexes.filter((h) => h.terrain === 'forest');
+  const robber = wood[Math.floor(rng() * wood.length)].id;
+
+  return { hexes, vertices, edges, ports, coast, robber, seed, map: 'niebla' };
 }

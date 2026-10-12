@@ -46,8 +46,8 @@ const totalCards = (p) => RESOURCES.reduce((s, r) => s + p.res[r], 0);
 const canPay = (p, cost) => Object.entries(cost).every(([r, k]) => p.res[r] >= k);
 const pay = (p, cost) => Object.entries(cost).forEach(([r, k]) => (p.res[r] -= k));
 
-export function newGame(names, seed = Date.now() % 2 ** 31, colors = null) {
-  const board = generateBoard(seed);
+export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map = 'clasico') {
+  const board = generateBoard(seed, map);
   const players = names.map((name, i) => ({
     id: i, name: name || `Jugador ${i + 1}`, color: PLAYER_COLORS[colors?.[i] ?? i],
     res: { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 },
@@ -59,7 +59,8 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null) {
   const setupQueue = [...keys, ...keys.slice().reverse()];
   const rng = mulberry32((seed ^ 0x9e3779b9) >>> 0);
   return {
-    board, players, seed,
+    board, players, seed, map,
+    revealed: [], // niebla: ids de hexes ya descubiertos (mapa niebla)
     rng,
     devDeck: shuffleDev(DEV_DECK.slice(), rng),
     current: setupQueue[0], setupQueue, setupIdx: 0, lastSetupVertex: null,
@@ -86,6 +87,29 @@ function shuffleDev(arr, rng) {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+
+// niebla: hex oculto = marcado con fog y todavía no descubierto
+export const hexHidden = (st, hid) => {
+  const hex = st.board.hexes[hid];
+  return !!hex.fog && !st.revealed.includes(hid);
+};
+
+const FOG_TERRAIN_LABEL = {
+  forest: '🌲 un Bosque', hills: '🧱 una Ladera', pasture: '🐑 una Pradera',
+  fields: '🌾 unos Sembradíos', mountains: '⛰️ una Montaña', desert: '🏜️ un Desierto',
+};
+
+// revela los hexes con niebla que tocan el camino recién construido
+function revealByRoad(st, eid) {
+  const p = st.players[st.current];
+  for (const hid of st.board.edges[eid].hexes) {
+    if (!hexHidden(st, hid)) continue;
+    st.revealed.push(hid);
+    const hex = st.board.hexes[hid];
+    const ficha = hex.number ? ` con ficha ${hex.number}` : '';
+    log(st, `🌫️ ${p.name} descubrió ${FOG_TERRAIN_LABEL[hex.terrain] || hex.terrain}${ficha}.`);
+  }
 }
 
 // PV visibles: edificios + cartas de PV (cuentan en silencio, como en Colonist)
@@ -122,6 +146,8 @@ export function settlementSpots(st, pid, setup) {
   for (const v of st.board.vertices) {
     if (occ.has(v.id)) continue;
     if (v.neighbors.some((n) => occ.has(n))) continue; // distance rule
+    // niebla: no se puede poblar un vértice que toque un hex sin descubrir
+    if (v.hexes.some((hid) => hexHidden(st, hid))) continue;
     // el vértice mismo debe ser extremo de un camino propio (no alcanza
     // con estar a un paso de la red)
     if (setup || mine.has(v.id)) spots.push(v.id);
@@ -177,6 +203,7 @@ export function placeSetupRoad(st, eid) {
   if (!setupRoadSpots(st, pid).includes(eid)) return err('Camino inválido');
   const p = st.players[pid];
   p.roads.push(eid);
+  revealByRoad(st, eid);
   st.lastSetupVertex = null; // el paso termina: el siguiente jugador coloca asentamiento
   log(st, `🛣️ ${p.name} construyó un camino.`);
   st.setupIdx++;
@@ -208,7 +235,9 @@ export function rollDice(st) {
   } while (sum === 7 && st.lastRollWas7 && attempts < 6);
   st.lastRollWas7 = sum === 7;
   st.dice = [d1, d2];
-  st.lastProduced = st.board.hexes.filter((h) => h.number === sum).map((h) => h.id);
+  st.lastProduced = st.board.hexes
+    .filter((h) => h.number === sum && !hexHidden(st, h.id))
+    .map((h) => h.id);
   st.lastGain = {};
   log(st, `🎲 ${st.players[st.current].name} tiró ${d1} + ${d2} = ${sum}.`);
   if (sum === 7) {
@@ -232,6 +261,7 @@ function produce(st, sum) {
   const per = {}; // pid -> { recurso: cantidad }
   for (const hex of st.board.hexes) {
     if (hex.number !== sum || hex.terrain === 'desert' || st.robber === hex.id) continue;
+    if (hexHidden(st, hex.id)) continue; // niebla: sin descubrir no produce
     let hexGain = 0;
     for (const vid of hex.vertices) {
       for (const p of st.players) {
@@ -272,7 +302,9 @@ export function discard(st, pid, cards) {
 }
 
 export function robberSpots(st) {
-  return st.board.hexes.filter((h) => h.id !== st.robber).map((h) => h.id);
+  return st.board.hexes
+    .filter((h) => h.id !== st.robber && !hexHidden(st, h.id))
+    .map((h) => h.id);
 }
 
 export function moveRobber(st, hid) {
@@ -484,6 +516,7 @@ export function buildRoad(st, eid) {
   p.roads.push(eid);
   if (free) st.freeRoads--;
   log(st, `🛣️ ${p.name} construyó un camino${free ? ' (gratis)' : ''}.`);
+  revealByRoad(st, eid);
   refreshLongestRoad(st);
   return checkWin(st, p);
 }

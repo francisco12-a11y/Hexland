@@ -665,3 +665,97 @@ test('el estado viaja por JSON sin perder lo que el render necesita', () => {
   assert.equal(copy.players[0].res.wood, 3);
   assert.ok(copy.setupQueue.length === 6);
 });
+
+// ---------- mapa niebla ----------
+
+test('niebla: estructura del tablero (laguna, 18 madera, 42 niebla, 6 puertos 2:1 madera)', () => {
+  const a = generateBoard(7, 'niebla');
+  assert.equal(a.hexes.length, 61);
+  assert.equal(a.hexes.filter((h) => h.terrain === 'lagoon').length, 1);
+  assert.equal(a.hexes.filter((h) => h.terrain === 'forest').length, 18);
+  const fog = a.hexes.filter((h) => h.fog);
+  assert.equal(fog.length, 42);
+  // la niebla solo esconde los 4 recursos que no están en el centro
+  for (const h of fog) assert.ok(['hills', 'mountains', 'fields', 'pasture'].includes(h.terrain), h.terrain);
+  // todos los hexes con niebla tienen número oculto (2-12, sin 7)
+  for (const h of fog) assert.ok(h.number >= 2 && h.number <= 12 && h.number !== 7, 'ficha ' + h.number);
+  // puertos: 6 alrededor de la laguna, todos 2:1 de madera, mirando al agua
+  assert.equal(a.ports.length, 6);
+  const lag = a.hexes.find((h) => h.terrain === 'lagoon');
+  for (const p of a.ports) {
+    assert.equal(p.type, 'wood');
+    assert.equal(p.small, true);
+    for (const vid of p.vids) {
+      const v = a.vertices[vid];
+      assert.ok(v.hexes.includes(lag.id), 'acceso toca la laguna');
+    }
+    // normal apuntando hacia el centro de la laguna
+    const mx = (a.vertices[p.vids[0]].x + a.vertices[p.vids[1]].x) / 2;
+    const my = (a.vertices[p.vids[0]].y + a.vertices[p.vids[1]].y) / 2;
+    assert.ok(p.nx * (lag.x - mx) + p.ny * (lag.y - my) > 0, 'puerto mira al agua');
+  }
+  // determinista entre semillas en estructura, variado en contenido
+  const b = generateBoard(7, 'niebla');
+  assert.deepEqual(a.hexes.map((h) => [h.terrain, h.number]), b.hexes.map((h) => [h.terrain, h.number]));
+  const c = generateBoard(8, 'niebla');
+  assert.notDeepEqual(a.hexes.map((h) => h.terrain), c.hexes.map((h) => h.terrain));
+});
+
+test('niebla: sin descubrir no se puebla al lado, no produce y no recibe al ladrón', () => {
+  const st = G.newGame(['A', 'B'], 7, null, 'niebla');
+  assert.equal(st.map, 'niebla');
+  const fogHex = st.board.hexes.find((h) => h.fog);
+  // vértices del hex con niebla: inhabilitados para asentamiento
+  const spots = G.settlementSpots(st, 0, true);
+  for (const vid of fogHex.vertices) assert.equal(spots.includes(vid), false);
+  // el ladrón no puede ir ahí
+  st.phase = 'robber';
+  assert.equal(G.robberSpots(st).includes(fogHex.id), false);
+  // y aunque el número coincida, la niebla no produce ni destella
+  const st2 = G.newGame(['A', 'B'], 7, null, 'niebla');
+  for (const p of st2.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
+  const target = st2.board.hexes.find((h) => h.fog && h.number === 6)
+    || st2.board.hexes.find((h) => h.fog && (h.number === 6 || h.number === 8));
+  if (target) {
+    forceRoll(st2, target.number);
+    assert.deepEqual(st2.lastProduced.includes(target.id), false, 'niebla no destella');
+    assert.equal(st2.lastGain[target.id], undefined, 'niebla no produce');
+  }
+});
+
+test('niebla: un camino que toca niebla revela el hex (y habilita poblar ahí)', () => {
+  const st = G.newGame(['A', 'B'], 7, null, 'niebla');
+  // setup completo en la isla de madera
+  while (st.phase === 'setup') {
+    const pid = st.setupQueue[st.setupIdx];
+    G.placeSetupSettlement(st, G.settlementSpots(st, pid, true)[0]);
+    G.placeSetupRoad(st, G.setupRoadSpots(st, pid)[0]);
+  }
+  assert.deepEqual(st.revealed, [], 'el setup no revela (caminos internos)');
+  // extender caminos hasta tocar niebla: rellenar recursos y construir
+  st.phase = 'main';
+  const p = st.players[0];
+  for (const r of G.RESOURCES) p.res[r] = 50;
+  let revealed = 0;
+  for (let i = 0; i < 30 && revealed === 0; i++) {
+    const spot = G.roadSpots(st, 0).find((eid) =>
+      st.board.edges[eid].hexes.some((hid) => st.board.hexes[hid].fog && !st.revealed.includes(hid)));
+    const any = spot != null ? spot : G.roadSpots(st, 0)[0];
+    if (any == null) break;
+    assert.ok(G.buildRoad(st, any).ok);
+    revealed = st.revealed.length;
+  }
+  assert.ok(revealed > 0, 'construir hacia afuera revela niebla');
+  assert.ok(st.log.some((l) => l.includes('descubrió')), 'log de descubrimiento');
+  // un hex revelado habilita poblar vértices que antes tocaban niebla
+  const vid = st.board.hexes[st.revealed[0]].vertices[0];
+  const nowSpots = G.settlementSpots(st, 0, false);
+  if (!st.board.vertices[vid].hexes.some((hid) => hid !== st.revealed[0]
+      && st.board.hexes[hid].fog && !st.revealed.includes(hid))) {
+    // solo si todos sus hexes están revelados
+    if (G.roadSpots(st, 0).some((eid) => st.board.edges[eid].a === vid || st.board.edges[eid].b === vid)
+        && !st.players.some((q) => q.settlements.includes(vid))) {
+      assert.ok(nowSpots.includes(vid), 'vértice descubierto se puede poblar');
+    }
+  }
+});
