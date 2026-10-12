@@ -323,7 +323,7 @@ test('stock: 15 caminos, 5 asentamientos, 4 ciudades por jugador', () => {
   }
 });
 
-test('victoria a 8 puntos de victoria (techo sin cartas de desarrollo: 9 PV)', () => {
+test('victoria a 10 PV: edificios solos no alcanzan (techo 9), una carta de PV cierra', () => {
   const st = startGame(7);
   st.phase = 'main';
   const p = st.players[0];
@@ -334,15 +334,228 @@ test('victoria a 8 puntos de victoria (techo sin cartas de desarrollo: 9 PV)', (
     assert.ok(spots.length, 'sin lugares para asentamientos');
     p.settlements.push(spots[0]);
   }
-  // convierto asentamientos en ciudades siempre sobre el primero que siga siendo pueblo
-  let won = false;
-  for (let i = 0; i < 4 && !won; i++) {
+  // 5 asentamientos + 4 ciudades = 9 PV: no gana con edificios solos
+  for (let i = 0; i < 4; i++) {
     const r = G.buildCity(st, p.settlements[0]);
     assert.ok(r.ok, r.err);
-    if (st.phase === 'over') won = true;
   }
-  assert.ok(won, 'debería haber cruzado el umbral de victoria');
+  assert.notEqual(st.phase, 'over', '9 PV no deben ganar');
+  assert.equal(G.vp(p), 9);
+  // la 5ta ciudad no existe: convierto la última en ciudad… no puede (stock 4)
+  assert.ok(p.settlements.length === 1);
+  // compro cartas hasta que salga un Punto de Victoria (mazo espiado y forzado)
+  p.devs = [];
+  st.devDeck = ['vp', 'knight'];
+  assert.ok(G.buyDev(st).ok);
+  assert.notEqual(st.phase, 'over', 'el caballero no suma PV');
+  assert.ok(G.buyDev(st).ok, 'compra del PV');
+  assert.equal(st.phase, 'over', '10 PV con la carta de PV');
   assert.equal(st.winner, 0);
+  assert.equal(G.vp(p), 10);
+});
+
+// ---------- cartas de desarrollo ----------
+
+test('mazo de desarrollo: 25 cartas con la composición estándar', () => {
+  const st = G.newGame(['A', 'B'], 7);
+  assert.equal(st.devDeck.length, 25);
+  const count = (t) => st.devDeck.filter((c) => c === t).length;
+  assert.equal(count('knight'), 14);
+  assert.equal(count('vp'), 5);
+  assert.equal(count('roadbuilding'), 2);
+  assert.equal(count('yoplenty'), 2);
+  assert.equal(count('monopoly'), 2);
+  // misma semilla → mismo mazo
+  const st2 = G.newGame(['A', 'B'], 7);
+  assert.deepEqual(st.devDeck, st2.devDeck);
+});
+
+test('buyDev: paga 🐑🌾⛰️, la carta guarda el turno de compra y no se puede jugar en el turno comprado', () => {
+  const st = startGame(7);
+  st.phase = 'main';
+  const p = st.players[0];
+  p.res.sheep = 1; p.res.wheat = 1; p.res.ore = 1;
+  const before = totals(st)[0];
+  assert.ok(G.buyDev(st).ok);
+  assert.equal(totals(st)[0], before - 3);
+  assert.equal(p.devs.length, 1);
+  assert.equal(p.devs[0].turn, st.turn);
+  assert.equal(st.devDeck.length, 24);
+  // sin recursos, segunda compra falla
+  assert.equal(G.buyDev(st).ok, false);
+  // jugarla ahora es inválido (comprada este turno)
+  p.devs[0].t = 'knight'; // cualquier tipo no-PV: el gating es por turno
+  assert.equal(G.playKnight(st, 0).ok, false);
+  // y solo se puede en fase main
+  st.phase = 'roll';
+  assert.equal(G.buyDev(st).ok, false);
+});
+
+test('caballero: mueve al ladrón, cuenta para el ejército (3+ lo toma, +2 PV) y hay una carta por turno', () => {
+  const st = startGame(7);
+  st.phase = 'main';
+  const p = st.players[0], q = st.players[1];
+  p.devs = [{ t: 'knight', turn: 0 }, { t: 'knight', turn: 0 }, { t: 'knight', turn: 0 }];
+  st.turn = 5;
+  // juega el primero → fase ladrón
+  assert.ok(G.playKnight(st, 0).ok);
+  assert.equal(st.phase, 'robber');
+  assert.equal(p.knights, 1);
+  assert.equal(st.devPlayed, true);
+  // segunda carta el mismo turno: no
+  assert.equal(G.playKnight(st, 0).ok, false);
+  G.moveRobber(st, G.robberSpots(st)[0]);
+  assert.ok(G.endTurn(st).ok);
+  assert.equal(st.devPlayed, false);
+  // devuelvo el turno al jugador 0 (endTurn se lo pasó al 1) y juego el 2do
+  st.current = 0;
+  st.phase = 'main';
+  assert.ok(G.playKnight(st, 0).ok);
+  assert.equal(p.knights, 2);
+  assert.equal(st.largestArmy, null, 'con 2 todavía no');
+  G.moveRobber(st, G.robberSpots(st)[0]);
+  // turno siguiente: el 3er caballero toma el ejército (+2 PV)
+  st.turn = 7;
+  st.phase = 'main';
+  st.devPlayed = false;
+  assert.ok(G.playKnight(st, 0).ok);
+  assert.equal(st.largestArmy, 0);
+  assert.equal(p.hasLargestArmy, true);
+  assert.equal(G.vp(p), 4); // 2 asentamientos del setup + bonus
+  G.moveRobber(st, G.robberSpots(st)[0]); // resuelvo el ladrón del 3er caballero
+  // empate de caballeros no roba el título (q juega en un turno posterior)
+  st.current = 1;
+  st.turn = 8;
+  st.devPlayed = false; // endTurn lo resetea en el flujo real
+  q.knights = 2; // este es su 3er caballero: empata con el titular
+  q.devs = [{ t: 'knight', turn: 0 }];
+  assert.ok(G.playKnight(st, 0).ok);
+  assert.equal(q.knights, 3);
+  G.moveRobber(st, G.robberSpots(st)[0]);
+  assert.equal(st.largestArmy, 0, 'empate: conserva el titular');
+});
+
+test('año de abundancia y monopolio', () => {
+  const st = startGame(7);
+  st.phase = 'main';
+  const p = st.players[0];
+  p.devs = [{ t: 'yoplenty', turn: 0 }];
+  st.turn = 3;
+  assert.ok(G.playYearOfPlenty(st, 0, 'ore', 'ore').ok);
+  assert.equal(p.res.ore, 2);
+  // monopolio: les saca TODAS las cartas de ese recurso a los demás
+  st.players[1].res.wood = 4;
+  st.players[2].res.wood = 2;
+  p.devs = [{ t: 'monopoly', turn: 0 }];
+  st.devPlayed = false;
+  st.current = 0;
+  assert.ok(G.playMonopoly(st, 0, 'wood').ok);
+  assert.equal(p.res.wood, 6);
+  assert.equal(st.players[1].res.wood, 0);
+  assert.equal(st.players[2].res.wood, 0);
+});
+
+test('construcción de caminos: 2 caminos gratis respetando conectividad, y expiran al terminar el turno', () => {
+  const st = startGame(7);
+  st.phase = 'main';
+  const p = st.players[0];
+  for (const r of G.RESOURCES) p.res[r] = 0; // sin recursos: los caminos salen gratis
+  p.devs = [{ t: 'roadbuilding', turn: 0 }];
+  st.turn = 3;
+  assert.ok(G.playRoadBuilding(st, 0).ok);
+  assert.equal(st.freeRoads, 2);
+  const s1 = G.roadSpots(st, 0)[0];
+  assert.ok(G.buildRoad(st, s1).ok, 'camino gratis 1');
+  assert.equal(st.freeRoads, 1);
+  assert.equal(totals(st)[0], 0, 'no pagó recursos');
+  const s2 = G.roadSpots(st, 0)[0];
+  assert.ok(G.buildRoad(st, s2).ok, 'camino gratis 2');
+  assert.equal(st.freeRoads, 0);
+  // el tercero ya cuesta: sin recursos, falla
+  const s3 = G.roadSpots(st, 0)[0];
+  if (s3 != null) assert.equal(G.buildRoad(st, s3).ok, false);
+});
+
+// ---------- camino comercial ----------
+
+const edgeTaken = (st, eid) => st.players.some((q) => q.roads.includes(eid));
+const sharedV = (ea, eb) => [ea.a, ea.b].find((v) => [eb.a, eb.b].includes(v));
+// los asentamientos que deja el setup pueden caer justo en la cadena y
+// bloquearla: para los tests de camino limpio los edificios enemigos
+const clearEnemies = (st, pid) => {
+  for (const q of st.players) {
+    if (q.id === pid) continue;
+    q.settlements = [];
+    q.cities = [];
+  }
+};
+
+// construye una cadena de n aristas propias (push directo) saliendo desde el
+// vértice fromVertex; devuelve el vértice final de la cadena
+function extendChain(st, pid, fromVertex, n) {
+  const p = st.players[pid];
+  let cur = fromVertex;
+  for (let i = 0; i < n; i++) {
+    const eid = st.board.vertices[cur].edges.find((e) => !edgeTaken(st, e.id));
+    assert.ok(eid != null, 'sin arista libre para extender');
+    p.roads.push(eid);
+    const e = st.board.edges[eid];
+    cur = e.a === cur ? e.b : e.a;
+  }
+  return cur;
+}
+
+const chainStart = (st, pid) => st.board.edges[st.players[pid].roads[0]].a;
+
+test('camino comercial: 5+ aristas conectadas lo dan (+2 PV)', () => {
+  const st = startGame(7);
+  clearEnemies(st, 0);
+  const p = st.players[0];
+  assert.equal(st.longestRoad, null);
+  extendChain(st, 0, chainStart(st, 0), 4); // camino del setup + 4 en cadena
+  assert.ok(G.longestRoadLen(st, 0) >= 5);
+  G.refreshLongestRoad(st);
+  assert.equal(st.longestRoad, 0);
+  assert.equal(p.hasLongestRoad, true);
+  assert.equal(G.vp(p), 2 + 2); // 2 asentamientos del setup + bonus
+});
+
+test('camino comercial: el titular conserva empates y pierde con quien supera', () => {
+  const st = startGame(7);
+  clearEnemies(st, 0);
+  extendChain(st, 0, chainStart(st, 0), 4); // A: 5+
+  G.refreshLongestRoad(st);
+  assert.equal(st.longestRoad, 0);
+  const endB = extendChain(st, 1, chainStart(st, 1), 4); // B: 5 también
+  G.refreshLongestRoad(st);
+  assert.equal(st.longestRoad, 0, 'empate o menos: conserva el titular');
+  extendChain(st, 1, endB, 2); // B: 7, supera a A (5 o 6)
+  G.refreshLongestRoad(st);
+  assert.equal(st.longestRoad, 1, 'B superó: transfiere');
+  assert.equal(st.players[0].hasLongestRoad, false);
+  assert.equal(st.players[1].hasLongestRoad, true);
+});
+
+test('camino comercial: un asentamiento enemigo corta el paso y el título se pierde', () => {
+  const st = startGame(7);
+  const p = st.players[0], q = st.players[1];
+  clearEnemies(st, 0);
+  extendChain(st, 0, chainStart(st, 0), 7); // 8 en cadena (setup + 7)
+  G.refreshLongestRoad(st);
+  assert.equal(st.longestRoad, 0);
+  assert.ok(st.longestRoadLen >= 5, st.longestRoadLen);
+  // dos asentamientos enemigos en vértices intermedios parten la cadena en
+  // tramos de 4, 2 y 2: ninguno llega a 5
+  const roads = p.roads.map((eid) => st.board.edges[eid]);
+  const j1 = sharedV(roads[4], roads[5]); // entre la 5ta y 6ta arista
+  const j2 = sharedV(roads[6], roads[7]); // entre la 7ma y 8va
+  assert.ok(j1 != null && j2 != null, 'la cadena es lineal: hay vértices compartidos');
+  q.settlements.push(j1, j2);
+  G.refreshLongestRoad(st);
+  const lenAfter = G.longestRoadLen(st, 0);
+  assert.ok(lenAfter < 5, 'los cortes parten en tramos < 5: ' + lenAfter);
+  assert.equal(st.longestRoad, null);
+  assert.equal(p.hasLongestRoad, false);
 });
 
 // ---------- comercio ----------

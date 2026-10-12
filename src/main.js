@@ -248,6 +248,11 @@ const HOST_ACTIONS = {
   moveRobber: (st, a) => G.moveRobber(st, a[0]),
   stealFrom: (st, a) => G.stealFrom(st, a[0]),
   discard: (st, a) => G.discard(st, a[0], a[1]),
+  buyDev: (st) => G.buyDev(st),
+  playKnight: (st, a) => G.playKnight(st, a[0]),
+  playRoadBuilding: (st, a) => G.playRoadBuilding(st, a[0]),
+  playYearOfPlenty: (st, a) => G.playYearOfPlenty(st, a[0], a[1], a[2]),
+  playMonopoly: (st, a) => G.playMonopoly(st, a[0], a[1]),
   endTurn: (st) => G.endTurn(st),
 };
 
@@ -344,11 +349,12 @@ function targetsForMode() {
     const roadStep = session.online ? game.lastSetupVertex != null : mode?.kind === 'road';
     if (!roadStep) G.settlementSpots(game, game.current, true).forEach((v) => t.vertices.add(v));
     else G.setupRoadSpots(game, game.current).forEach((e) => t.edges.add(e));
-  } else if (game.phase === 'main' && mode) {
+  } else if (game.phase === 'main') {
     if (session.online && game.current !== session.myId) return t;
-    if (mode.kind === 'settlement') G.settlementSpots(game, game.current, false).forEach((v) => t.vertices.add(v));
-    if (mode.kind === 'city') G.citySpots(game, game.current).forEach((v) => t.vertices.add(v));
-    if (mode.kind === 'road') G.roadSpots(game, game.current).forEach((e) => t.edges.add(e));
+    if (mode?.kind === 'settlement') G.settlementSpots(game, game.current, false).forEach((v) => t.vertices.add(v));
+    if (mode?.kind === 'city') G.citySpots(game, game.current).forEach((v) => t.vertices.add(v));
+    // los caminos gratis van solos (sin mode): el estado manda, anda online
+    if (mode?.kind === 'road' || game.freeRoads > 0) G.roadSpots(game, game.current).forEach((e) => t.edges.add(e));
   } else if (game.phase === 'robber') {
     if (session.online && game.current !== session.myId) return t;
     G.robberSpots(game).forEach((h) => t.hexes.add(h));
@@ -448,10 +454,15 @@ const resName = (r) => RES_NAMES[r];
 const totalCards = (p) => G.RESOURCES.reduce((s, r) => s + p.res[r], 0);
 
 function renderChips() {
-  $('#scorechips').innerHTML = game.players.map((q) => `
+  $('#scorechips').innerHTML = game.players.map((q) => {
+    const badges = `
+      ${q.hasLongestRoad ? '<span class="bdg" title="Camino comercial">🛣️</span>' : ''}
+      ${q.hasLargestArmy ? '<span class="bdg" title="Ejército más grande">⚔️</span>' : ''}`;
+    return `
     <div class="chip ${q.id === game.current ? 'me' : ''}">
-      ${houseHTML(q.color, 18)}<span class="cnm">${q.name}</span><span class="cvp">${G.vp(q)}</span>
-    </div>`).join('');
+      ${houseHTML(q.color, 18)}<span class="cnm">${q.name}</span>${badges}<span class="cvp">${G.vp(q)}</span>
+    </div>`;
+  }).join('');
 }
 
 function renderLog() {
@@ -473,23 +484,54 @@ function renderBank() {
 
 function renderMe() {
   const p = mePlayer();
+  const extra = `${p.knights ? ` · ⚔️ ${p.knights}` : ''}${p.devs?.length ? ` · 🃏 ${p.devs.length}` : ''}`;
   $('#me').innerHTML = `
     <span class="hicon">${houseHTML(p.color, 34)}</span>
     <div>
       <div class="menm">${session.online ? `${p.name} (vos)` : p.name}</div>
-      <div class="mesub">🛣️ ${p.roads.length}/15 · 🏠 ${p.settlements.length}/5 · 🏛️ ${p.cities.length}/4</div>
+      <div class="mesub">🛣️ ${p.roads.length}/15 · 🏠 ${p.settlements.length}/5 · 🏛️ ${p.cities.length}/4${extra}</div>
     </div>
     <span class="pvp">${G.vp(p)} PV</span>`;
 }
 
+const DEV_SHORT = { knight: 'Caballero', vp: 'P. Victoria', roadbuilding: 'Caminos', yoplenty: 'Abundancia', monopoly: 'Monopolio' };
+
 function renderHand() {
   const p = mePlayer();
-  const held = G.RESOURCES.filter((r) => p.res[r] > 0);
-  $('#hand').innerHTML = held.length
-    ? held.map((r) =>
-        `<span class="rescard big ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>×${p.res[r]}</small></span>`
-      ).join('')
+  const resHtml = G.RESOURCES.filter((r) => p.res[r] > 0).map((r) =>
+    `<span class="rescard big ${r}" title="${resName(r)}">${G.RES_EMOJI[r]}<small>×${p.res[r]}</small></span>`
+  ).join('');
+  // cartas de desarrollo con su índice original; jugables solo en tu main,
+  // una por turno y nunca la comprada este turno (los PV cuentan solos)
+  const canBase = game.phase === 'main' && myTurn() && !game.devPlayed;
+  const devHtml = (p.devs || []).map((c, i) => {
+    const can = canBase && c.t !== 'vp' && c.turn < game.turn;
+    return `<button class="devcard ${can ? 'canplay' : ''}" data-dev="${i}" data-t="${c.t}"
+      title="${G.DEV_NAME[c.t]}${c.t === 'vp' ? ' (cuenta solo)' : can ? '' : ' — todavía no jugable'}" ${can ? '' : 'disabled'}>
+      <span class="dico">${G.DEV_EMOJI[c.t]}</span><small>${DEV_SHORT[c.t]}</small></button>`;
+  }).join('');
+  $('#hand').innerHTML = (resHtml || devHtml)
+    ? resHtml + devHtml
     : `<p class="empty">Sin cartas 🃏</p>`;
+  $('#hand').querySelectorAll('.devcard.canplay').forEach((b) => {
+    b.onclick = () => playDevCard(Number(b.dataset.dev), b.dataset.t);
+  });
+}
+
+// juega la carta idx del tipo t: knight y caminos salen derecho; monopolio y
+// abundancia abren su modal para elegir recursos
+function playDevCard(idx, t) {
+  const finish = (r) => {
+    if (!r.ok) return flash(r.err);
+    if (t === 'roadbuilding') mode = { kind: 'road', setup: false };
+    renderAll();
+    if (game.phase === 'over') showWin();
+  };
+  if (t === 'monopoly') return showMonopolyModal(idx);
+  if (t === 'yoplenty') return showYoplentyModal(idx);
+  const kind = t === 'knight' ? 'playKnight' : 'playRoadBuilding';
+  if (session.online) act(kind, [idx]).then(finish);
+  else finish(G[kind](game, idx));
 }
 
 const myTurn = () => !session.online || game.current === session.myId;
@@ -519,11 +561,14 @@ function renderPieceButtons() {
     const dis = (!session.online || !myTurn() ? true : !afford(G.COSTS[kind]) || !has(kind));
     return `<button class="pbtn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" title="${title}" ${dis ? 'disabled' : ''}>${icon}<span class="n">×${left[kind]}</span></button>`;
   };
+  const devLeft = game.devDeck.length;
+  const devDis = !myTurn() || !afford(G.COSTS.dev) || devLeft === 0;
   box.innerHTML = `
     <button class="pbtn" id="b-trade" title="Comerciar con el banco" ${!myTurn() ? 'disabled' : ''}>🔄</button>
     ${btn('road', '🛣️', 'Construir camino — 1🧱 1🌲')}
     ${btn('settlement', '🏠', 'Fundar asentamiento — 1🧱 1🌲 1🐑 1🌾')}
     ${btn('city', '🏛️', 'Fundar ciudad — 3⛰️ 2🌾')}
+    <button class="pbtn" id="b-dev" title="Carta de desarrollo — 1🐑 1🌾 1⛰️" ${devDis ? 'disabled' : ''}>🃏<span class="n">×${devLeft}</span></button>
     <button class="pbtn wide" id="b-end" ${!myTurn() ? 'disabled' : ''}>⏩ Terminar turno</button>`;
   box.querySelectorAll('button[data-k]').forEach((b) => {
     b.onclick = () => {
@@ -533,6 +578,12 @@ function renderPieceButtons() {
     };
   });
   $('#b-trade').onclick = showTradeModal;
+  $('#b-dev').onclick = () => {
+    if (session.online) return act('buyDev').then((r) => { if (!r.ok) flash(r.err); });
+    if (!G.buyDev(game).ok) return;
+    renderAll();
+    if (game.phase === 'over') showWin(); // una carta de PV puede ganar en el acto
+  };
   $('#b-end').onclick = () => {
     if (session.online) {
       act('endTurn').then((r) => { if (!r.ok) flash(r.err); });
@@ -559,7 +610,11 @@ function renderPrompt() {
   } else if (game.phase === 'roll') {
     msg = waiting ? `⏳ ${p.name} está por tirar…` : `🎲 ${session.online ? 'Tocá el panel de dados' : p.name + ': tirá los dados'}`;
   } else if (game.phase === 'main') {
-    msg = mode ? `👉 ${p.name}: ${modeHint(mode)}` : `🔨 ${p.name}: construí, comerciá o terminá tu turno`;
+    if (game.freeRoads > 0 && !waiting) {
+      msg = `🛣️ ${p.name}: colocá un camino gratis (${game.freeRoads} restante${game.freeRoads === 1 ? '' : 's'})`;
+    } else {
+      msg = mode ? `👉 ${p.name}: ${modeHint(mode)}` : `🔨 ${p.name}: construí, comerciá o terminá tu turno`;
+    }
     if (waiting) msg = `⏳ Turno de ${p.name}…`;
   } else if (game.phase === 'robber') {
     msg = waiting ? `🦹 ${p.name} mueve al ladrón…` : `🦹 ${p.name}: mové al ladrón`;
@@ -595,7 +650,9 @@ function onPick(kind, id) {
     renderAll();
     return;
   }
-  mode = null;
+  // mientras queden caminos gratis (construcción de caminos) el modo camino
+  // se re-arma solo; puedes fundar un asentamiento en el medio y sigue
+  mode = game.freeRoads > 0 ? { kind: 'road', setup: false } : null;
   renderAll();
   if (wasSetupRoad) { showHandoff(game.players[game.current]); return; } // setup just finished
   if (r.victims && r.victims.length) showStealModal(r.victims);
@@ -612,10 +669,10 @@ function pick(g, kind, id) {
     if (r.ok) mode = null;
     return r;
   }
-  if (g.phase === 'main' && mode) {
-    if (kind === 'vertex' && mode.kind === 'settlement') return G.buildSettlement(g, id);
-    if (kind === 'vertex' && mode.kind === 'city') return G.buildCity(g, id);
-    if (kind === 'edge' && mode.kind === 'road') return G.buildRoad(g, id);
+  if (g.phase === 'main' && (mode || g.freeRoads > 0)) {
+    if (kind === 'vertex' && mode?.kind === 'settlement') return G.buildSettlement(g, id);
+    if (kind === 'vertex' && mode?.kind === 'city') return G.buildCity(g, id);
+    if (kind === 'edge' && (mode?.kind === 'road' || g.freeRoads > 0)) return G.buildRoad(g, id);
   }
   return { ok: false, err: 'Elegí un destino válido', silent: !mode };
 }
@@ -637,12 +694,14 @@ function onlinePick(kind, id) {
     act('moveRobber', [id]).then((r) => { if (!r.ok) flash(r.err); });
     return;
   }
-  if (g.phase === 'main' && g.current === me && mode) {
-    const m = { settlement: ['buildSettlement', 'vertex'], city: ['buildCity', 'vertex'], road: ['buildRoad', 'edge'] }[mode.kind];
-    if (m && kind === m[1]) {
-      act(m[0], [id]).then((r) => {
-        if (r.ok) { mode = null; renderAll(); } else flash(r.err);
-      });
+  if (g.phase === 'main' && g.current === me) {
+    const roadOk = mode?.kind === 'road' || g.freeRoads > 0;
+    if (kind === 'vertex' && mode?.kind === 'settlement') {
+      act('buildSettlement', [id]).then((r) => { if (r.ok) { mode = g.freeRoads > 0 ? { kind: 'road', setup: false } : null; renderAll(); } else flash(r.err); });
+    } else if (kind === 'vertex' && mode?.kind === 'city') {
+      act('buildCity', [id]).then((r) => { if (r.ok) { mode = null; renderAll(); } else flash(r.err); });
+    } else if (kind === 'edge' && roadOk) {
+      act('buildRoad', [id]).then((r) => { if (r.ok) { mode = game.freeRoads > 0 ? { kind: 'road', setup: false } : null; renderAll(); } else flash(r.err); });
     }
   }
 }
@@ -732,8 +791,60 @@ function discardChain() {
   };
 }
 
-function showStealModal(victims) {
+function showMonopolyModal(idx) {
   const m = showModal(`
+    <h2>💰 Monopolio</h2>
+    <p class="sub">Elegí un recurso: te llevás TODAS las cartas de ese tipo que tengan los demás.</p>
+    <div class="pickgrid" id="mongrid"></div>`);
+  const grid = m.querySelector('#mongrid');
+  for (const r of G.RESOURCES) {
+    const b = document.createElement('button');
+    b.className = 'pick';
+    b.innerHTML = `${G.RES_EMOJI[r]}<small style="display:block;font-size:11px;color:var(--muted)">${resName(r)}</small>`;
+    b.onclick = () => {
+      const done = () => { hideModal(); renderAll(); };
+      if (session.online) act('playMonopoly', [idx, r]).then((x) => { if (x.ok) done(); else flash(x.err); });
+      else { const x = G.playMonopoly(game, idx, r); if (x.ok) done(); else flash(x.err); }
+    };
+    grid.appendChild(b);
+  }
+}
+
+function showYoplentyModal(idx) {
+  const sel = [];
+  const m = showModal(`
+    <h2>🎁 Año de Abundancia</h2>
+    <p class="sub">Elegí 2 recursos (pueden repetirse).</p>
+    <div class="pickgrid" id="ygrid"></div>
+    <p id="ysel" style="color:#ffd166;min-height:18px;margin:8px 0 0;font-size:13px">—</p>
+    <div class="btnrow">
+      <button class="btn" id="y-cancel">Cerrar</button>
+      <button class="btn primary" id="y-ok" disabled>Tomar</button>
+    </div>`);
+  const grid = m.querySelector('#ygrid');
+  const redraw = () => {
+    grid.innerHTML = '';
+    for (const r of G.RESOURCES) {
+      const b = document.createElement('button');
+      b.className = 'pick';
+      b.innerHTML = `${G.RES_EMOJI[r]}<small style="display:block;font-size:11px;color:var(--muted)">${resName(r)}</small>`;
+      b.disabled = sel.length >= 2;
+      b.onclick = () => { if (sel.length < 2) { sel.push(r); redraw(); } };
+      grid.appendChild(b);
+    }
+    m.querySelector('#ysel').textContent = sel.length ? sel.map((r) => G.RES_EMOJI[r]).join(' + ') : '—';
+    m.querySelector('#y-ok').disabled = sel.length !== 2;
+  };
+  redraw();
+  m.querySelector('#y-cancel').onclick = hideModal;
+  m.querySelector('#y-ok').onclick = () => {
+    const done = () => { hideModal(); renderAll(); };
+    if (session.online) act('playYearOfPlenty', [idx, sel[0], sel[1]]).then((x) => { if (x.ok) done(); else flash(x.err); });
+    else { const x = G.playYearOfPlenty(game, idx, sel[0], sel[1]); if (x.ok) done(); else flash(x.err); }
+  };
+}
+
+function showStealModal(victims) {  const m = showModal(`
     <h2>🤏 Robo</h2>
     <p class="sub">¿A quién le robás una carta (al azar)?</p>
     <div class="pickgrid" id="vics"></div>`);

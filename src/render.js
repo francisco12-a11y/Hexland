@@ -246,12 +246,12 @@ export function renderBoard(svg, st, targets, onPick) {
     const cp = el('clipPath', { id: clipId }, defs);
     el('polygon', { points: hexPoints(h) }, cp);
     const g = el('g', { 'clip-path': `url(#${clipId})` }, gHex);
-    el('rect', {
-      x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1), width: TW, height: TH,
-      fill: `url(#tg-${h.terrain})`,
+    el('image', {
+      href: `tiles/${h.terrain}.png?v=3`,
+      x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1),
+      width: TW, height: TH,
+      preserveAspectRatio: 'xMidYMid slice',
     }, g);
-    const art = el('g', { transform: `translate(${h.x.toFixed(1)} ${(h.y - 14).toFixed(1)})` }, g);
-    art.innerHTML = hexArt(h.terrain);
     el('polygon', {
       points: hexPoints(h), fill: 'none',
       stroke: shade(TERRAIN_FILL[h.terrain], -30),
@@ -282,14 +282,14 @@ export function renderBoard(svg, st, targets, onPick) {
     if (!h.number) continue;
     const red = h.number === 6 || h.number === 8;
     const g = el('g', { transform: `translate(${h.x} ${h.y + 14})` }, gNum);
-    el('rect', { x: -13, y: 0, width: 26, height: 32, rx: 7, fill: '#fdfcf7', stroke: '#d8d2c2', 'stroke-width': 1 }, g);
+    el('rect', { x: -15, y: 0, width: 30, height: 36, rx: 8, fill: '#fdfcf7', stroke: '#c9bfa8', 'stroke-width': 1.5 }, g);
     el('text', {
-      y: 20, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 800,
+      y: 22, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 800,
       fill: red ? '#c0392b' : '#33383d', 'font-family': 'system-ui',
     }, g).textContent = h.number;
     const pips = PIPS[h.number] || 0;
     for (let i = 0; i < pips; i++) {
-      el('circle', { cx: (i - (pips - 1) / 2) * 2.8, cy: 25, r: 1.1, fill: '#c0392b' }, g);
+      el('circle', { cx: (i - (pips - 1) / 2) * 3, cy: 28, r: 1.2, fill: '#c0392b' }, g);
     }
   }
 

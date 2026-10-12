@@ -11,18 +11,32 @@ export const COSTS = {
   road: { brick: 1, wood: 1 },
   settlement: { brick: 1, wood: 1, sheep: 1, wheat: 1 },
   city: { ore: 3, wheat: 2 },
+  dev: { sheep: 1, wheat: 1, ore: 1 },
 };
 export const COST_LABEL = {
   road: '1🧱 1🌲',
   settlement: '1🧱 1🌲 1🐑 1🌾',
   city: '3⛰️ 2🌾',
+  dev: '1🐑 1🌾 1⛰️',
 };
 const STOCK = { road: 15, settlement: 5, city: 4 };
 
+// mazo estándar de 25 cartas de desarrollo
+export const DEV_EMOJI = { knight: '⚔️', vp: '🏆', roadbuilding: '🛣️', yoplenty: '🎁', monopoly: '💰' };
+export const DEV_NAME = {
+  knight: 'Caballero', vp: 'Punto de Victoria', roadbuilding: 'Construcción de Caminos',
+  yoplenty: 'Año de Abundancia', monopoly: 'Monopolio',
+};
+const DEV_DECK = [
+  ...Array(14).fill('knight'),
+  ...Array(5).fill('vp'),
+  ...Array(2).fill('roadbuilding'),
+  ...Array(2).fill('yoplenty'),
+  ...Array(2).fill('monopoly'),
+];
+
 export const PLAYER_COLORS = ['#e63946', '#457b9d', '#f4a261', '#a78bfa'];
-// 8 porque solo con edificios el techo es 9 PV (1 pueblo + 4 ciudades);
-// cuando entren cartas de desarrollo y camino comercial, vuelve a ser 10.
-export const WIN_VP = 8;
+export const WIN_VP = 10;
 
 const OK = { ok: true };
 const err = (msg) => ({ ok: false, err: msg });
@@ -38,25 +52,48 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null) {
     id: i, name: name || `Jugador ${i + 1}`, color: PLAYER_COLORS[colors?.[i] ?? i],
     res: { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 },
     roads: [], settlements: [], cities: [],
+    devs: [], knights: 0, hasLargestArmy: false, hasLongestRoad: false,
   }));
   const n = players.length;
   const keys = [...Array(n).keys()];
   const setupQueue = [...keys, ...keys.slice().reverse()];
+  const rng = mulberry32((seed ^ 0x9e3779b9) >>> 0);
   return {
     board, players, seed,
-    rng: mulberry32((seed ^ 0x9e3779b9) >>> 0),
+    rng,
+    devDeck: shuffleDev(DEV_DECK.slice(), rng),
     current: setupQueue[0], setupQueue, setupIdx: 0, lastSetupVertex: null,
     phase: 'setup', // setup | roll | main | discard | robber | over
     pendingDiscards: [],
     dice: null, turn: 1, winner: null,
     lastProduced: [], lastGain: {},
     stealCandidates: [], // a quién puede robar quien movió al ladrón (deriva UI)
+    devPlayed: false,    // una sola carta de desarrollo por turno
+    freeRoads: 0,        // caminos gratis pendientes (construcción de caminos)
+    largestArmy: null, largestArmySize: 0,
+    longestRoad: null, longestRoadLen: 0,
     robber: board.robber,
     log: [`⬡ Partida creada — semilla ${seed}`],
   };
 }
 
-export const vp = (p) => p.settlements.length + 2 * p.cities.length;
+// Fisher-Yates local (no importa el shuffle genérico de board.js: este deck
+// vive en game.js para que las pruebas puedan espiarlo)
+function shuffleDev(arr, rng) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// PV visibles: edificios + cartas de PV (cuentan en silencio, como en Colonist)
+// + los dos bonus de 2 PV.
+export const vp = (p) =>
+  p.settlements.length + 2 * p.cities.length
+  + p.devs.filter((c) => c.t === 'vp').length
+  + (p.hasLargestArmy ? 2 : 0)
+  + (p.hasLongestRoad ? 2 : 0);
 
 // vértices conectados a la red del jugador: sus edificios + los extremos de
 // sus caminos. Todo lo que construya tiene que tocar esta red.
@@ -261,6 +298,167 @@ export function stealFrom(st, victimPid) {
   return { ok: true, card };
 }
 
+// ---------- cartas de desarrollo ----------
+
+export function buyDev(st) {
+  if (st.phase !== 'main') return err('Solo podés comprar en tu turno principal');
+  if (!st.devDeck.length) return err('No quedan cartas de desarrollo');
+  const p = st.players[st.current];
+  if (!canPay(p, COSTS.dev)) return err('Te faltan recursos (1🐑 1🌾 1⛰️)');
+  pay(p, COSTS.dev);
+  const t = st.devDeck.pop();
+  p.devs.push({ t, turn: st.turn });
+  log(st, `🃏 ${p.name} compró una carta de desarrollo.`);
+  return checkWin(st, p); // una carta de PV puede cerrar la partida en el acto
+}
+
+// valida y consume la carta idx del mazo del jugador activo; una por turno y
+// nunca la comprada en el turno en curso
+function consumeDev(st, idx, type) {
+  if (st.phase !== 'main') return err('Jugá las cartas en tu turno principal');
+  if (st.devPlayed) return err('Ya jugaste una carta de desarrollo este turno');
+  const p = st.players[st.current];
+  const card = p.devs[idx];
+  if (!card || card.t !== type) return err('No tenés esa carta');
+  if (card.turn >= st.turn) return err('La compraste este turno: jugala en el próximo');
+  p.devs.splice(idx, 1);
+  st.devPlayed = true;
+  return OK;
+}
+
+export function playKnight(st, idx) {
+  const c = consumeDev(st, idx, 'knight');
+  if (!c.ok) return c;
+  const p = st.players[st.current];
+  p.knights++;
+  const msg = updateLargestArmy(st);
+  log(st, `⚔️ ${p.name} jugó un Caballero (${p.knights} en total).`);
+  if (msg) log(st, msg);
+  const win = checkWin(st, p);
+  if (st.phase === 'over') return win;
+  st.phase = 'robber';
+  st.stealCandidates = [];
+  log(st, `🦹 Mové al ladrón.`);
+  return OK;
+}
+
+export function playRoadBuilding(st, idx) {
+  const c = consumeDev(st, idx, 'roadbuilding');
+  if (!c.ok) return c;
+  st.freeRoads = 2;
+  log(st, `🛣️ ${st.players[st.current].name} jugó Construcción de Caminos: 2 caminos gratis.`);
+  return OK;
+}
+
+export function playYearOfPlenty(st, idx, r1, r2) {
+  const c = consumeDev(st, idx, 'yoplenty');
+  if (!c.ok) return c;
+  if (!RESOURCES.includes(r1) || !RESOURCES.includes(r2)) return err('Elegí dos recursos');
+  const p = st.players[st.current];
+  p.res[r1]++; p.res[r2]++;
+  log(st, `🎁 ${p.name} jugó Año de Abundancia: ${RES_EMOJI[r1]}${r1 === r2 ? '×2' : ` + ${RES_EMOJI[r2]}`}.`);
+  return OK;
+}
+
+export function playMonopoly(st, idx, res) {
+  const c = consumeDev(st, idx, 'monopoly');
+  if (!c.ok) return c;
+  if (!RESOURCES.includes(res)) return err('Elegí un recurso');
+  let taken = 0;
+  const me = st.players[st.current];
+  for (const q of st.players) {
+    if (q.id === me.id) continue;
+    taken += q.res[res];
+    q.res[res] = 0;
+  }
+  me.res[res] += taken;
+  log(st, `💰 ${me.name} jugó Monopolio: se llevó ${taken}× ${RES_EMOJI[res]}.`);
+  return OK;
+}
+
+function updateLargestArmy(st) {
+  const p = st.players[st.current];
+  if (p.knights < 3) return null;
+  if (st.largestArmy === p.id) { st.largestArmySize = p.knights; return null; }
+  if (st.largestArmy != null && p.knights <= st.largestArmySize) return null;
+  if (st.largestArmy != null) st.players[st.largestArmy].hasLargestArmy = false;
+  st.largestArmy = p.id;
+  st.largestArmySize = p.knights;
+  p.hasLargestArmy = true;
+  return `⚔️ ${p.name} tomó el Ejército Más Grande (+2 PV).`;
+}
+
+// ---------- camino comercial ----------
+
+// camino más largo del jugador: DFS con backtracking sobre sus propias aristas.
+// Un edificio enemigo en un vértice corta el paso (el camino toca, pero no
+// atraviesa). Con ≤15 aristas por jugador el backtracking es trivial.
+export function longestRoadLen(st, pid) {
+  const p = st.players[pid];
+  if (p.roads.length === 0) return 0;
+  const edges = p.roads.map((eid) => st.board.edges[eid]);
+  const atV = new Map();
+  edges.forEach((e, i) => {
+    for (const vid of [e.a, e.b]) {
+      if (!atV.has(vid)) atV.set(vid, []);
+      atV.get(vid).push(i);
+    }
+  });
+  const blocked = new Set();
+  for (const q of st.players) {
+    if (q.id === pid) continue;
+    q.settlements.forEach((v) => blocked.add(v));
+    q.cities.forEach((v) => blocked.add(v));
+  }
+  const used = new Array(edges.length).fill(false);
+  let best = 0;
+  const dfs = (ei, len) => {
+    if (len > best) best = len;
+    const e = edges[ei];
+    for (const vid of [e.a, e.b]) {
+      if (blocked.has(vid)) continue;
+      for (const j of atV.get(vid) || []) {
+        if (used[j]) continue;
+        used[j] = true;
+        dfs(j, len + 1);
+        used[j] = false;
+      }
+    }
+  };
+  for (let i = 0; i < edges.length; i++) {
+    used[i] = true;
+    dfs(i, 1);
+    used[i] = false;
+  }
+  return best;
+}
+
+// recalcula el título tras cada camino o asentamiento. El titular conserva el
+// empate; 5+ aristas para tomarlo; perderlo si te lo cortan o te lo superan.
+// (exportada para las pruebas: los tests de motor manipulan el estado directo)
+export function refreshLongestRoad(st) {
+  const lens = st.players.map((_, i) => longestRoadLen(st, i));
+  let bestPid = null, bestLen = 0;
+  lens.forEach((len, i) => { if (len >= 5 && len > bestLen) { bestLen = len; bestPid = i; } });
+  const cur = st.longestRoad;
+  if (cur != null && bestPid !== cur && lens[cur] >= 5 && lens[bestPid] === lens[cur]) bestPid = cur;
+  if (bestPid !== cur) {
+    if (cur != null) st.players[cur].hasLongestRoad = false;
+    st.longestRoad = bestPid;
+    st.longestRoadLen = bestPid != null ? bestLen : 0;
+    if (bestPid != null) {
+      st.players[bestPid].hasLongestRoad = true;
+      log(st, `🛣️ ${st.players[bestPid].name} tomó el Camino Comercial (${bestLen} caminos, +2 PV).`);
+      const w = st.players[bestPid];
+      if (vp(w) >= WIN_VP && st.phase !== 'over') checkWin(st, w);
+    } else {
+      log(st, `🛣️ ${st.players[cur].name} perdió el Camino Comercial.`);
+    }
+  } else if (cur != null) {
+    st.longestRoadLen = lens[cur];
+  }
+}
+
 // ---------- building & trading ----------
 
 export function buildRoad(st, eid) {
@@ -268,11 +466,16 @@ export function buildRoad(st, eid) {
   const pid = st.current, p = st.players[pid];
   if (p.roads.length >= STOCK.road) return err('No quedan caminos');
   if (!roadSpots(st, pid).includes(eid)) return err('Camino inválido');
-  if (!canPay(p, COSTS.road)) return err('Te faltan recursos');
-  pay(p, COSTS.road);
+  const free = st.freeRoads > 0;
+  if (!free) {
+    if (!canPay(p, COSTS.road)) return err('Te faltan recursos');
+    pay(p, COSTS.road);
+  }
   p.roads.push(eid);
-  log(st, `🛣️ ${p.name} construyó un camino.`);
-  return OK;
+  if (free) st.freeRoads--;
+  log(st, `🛣️ ${p.name} construyó un camino${free ? ' (gratis)' : ''}.`);
+  refreshLongestRoad(st);
+  return checkWin(st, p);
 }
 
 export function buildSettlement(st, vid) {
@@ -284,6 +487,7 @@ export function buildSettlement(st, vid) {
   pay(p, COSTS.settlement);
   p.settlements.push(vid);
   log(st, `🏠 ${p.name} fundó un asentamiento (${vp(p)} PV).`);
+  refreshLongestRoad(st); // un edificio enemigo puede cortar el camino comercial
   return checkWin(st, p);
 }
 
@@ -340,6 +544,8 @@ export function endTurn(st) {
   st.phase = 'roll';
   st.dice = null;
   st.stealCandidates = [];
+  st.devPlayed = false;
+  st.freeRoads = 0; // los caminos gratis no se arrastran al turno siguiente
   log(st, `— Turno ${st.turn}: ${st.players[st.current].name} —`);
   return { ok: true, next: st.current };
 }
