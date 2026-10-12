@@ -304,9 +304,9 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
-  // robber token
+  // robber token: centrado, en el tercio superior (encima de la ficha de número)
   const rHex = st.board.hexes.find((h) => h.id === st.robber);
-  const gRob = el('g', { transform: `translate(${rHex.x + 32} ${rHex.y + 34})`, 'pointer-events': 'none', filter: 'url(#f-piece)' }, svg);
+  const gRob = el('g', { transform: `translate(${rHex.x} ${rHex.y - 32})`, 'pointer-events': 'none', filter: 'url(#f-piece)' }, svg);
   el('circle', { r: 13, fill: '#5a5f66', stroke: '#fff', 'stroke-width': 2.5 }, gRob);
   el('text', { y: 4.5, 'text-anchor': 'middle', 'font-size': 14 }, gRob).textContent = '🦹';
 
