@@ -20,6 +20,128 @@ function shade(hex, pct) {
   return `#${((f(r) << 16) | (f(g) << 8) | f(b)).toString(16).padStart(6, '0')}`;
 }
 
+// ---------- ilustraciones vectoriales por terreno (coords locales al hex) ----------
+
+function tree(x, y, s) {
+  return `<g transform="translate(${x} ${y}) scale(${s})">
+    <rect x="-4" y="8" width="8" height="15" rx="2" fill="#6b4226"/>
+    <polygon points="0,-27 15,-3 -15,-3" fill="#1d7343"/>
+    <polygon points="0,-14 17,12 -17,12" fill="#2a8a4f"/>
+    <polygon points="0,-24 9,-8 -7,-8" fill="#3da363" opacity="0.8"/>
+  </g>`;
+}
+
+function sheep(x, y, s) {
+  return `<g transform="translate(${x} ${y}) scale(${s})">
+    <rect x="-15" y="9" width="5" height="13" rx="2" fill="#5a544a"/>
+    <rect x="-3" y="11" width="5" height="11" rx="2" fill="#5a544a"/>
+    <rect x="9" y="10" width="5" height="12" rx="2" fill="#5a544a"/>
+    <ellipse cx="0" cy="4" rx="25" ry="17" fill="#fdfcf7" stroke="#b9b3a2" stroke-width="2"/>
+    <circle cx="-13" cy="-2" r="8.5" fill="#fdfcf7" stroke="#b9b3a2" stroke-width="2"/>
+    <circle cx="-1" cy="-6" r="9" fill="#fdfcf7" stroke="#b9b3a2" stroke-width="2"/>
+    <circle cx="11" cy="-2" r="8" fill="#fdfcf7" stroke="#b9b3a2" stroke-width="2"/>
+    <ellipse cx="21" cy="0" rx="7" ry="6.5" fill="#4a443c"/>
+    <ellipse cx="25" cy="-6" rx="3" ry="5" fill="#4a443c" transform="rotate(24 25 -6)"/>
+  </g>`;
+}
+
+function wheatStalk(x, y, s, rot) {
+  const grains = [-16, -10, -4, 2]
+    .map((gy, i) => `<ellipse cx="${i % 2 ? 4 : -4}" cy="${gy}" rx="3" ry="5" fill="#d9ae2e"/>
+      <ellipse cx="${i % 2 ? -4 : 4}" cy="${gy + 3}" rx="3" ry="5" fill="#c99b1f"/>`)
+    .join('');
+  return `<g transform="translate(${x} ${y}) rotate(${rot}) scale(${s})">
+    <path d="M0,30 C1,10 0,-8 0,-20" stroke="#c99b1f" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M0,4 C6,-2 9,-8 10,-14" stroke="#c99b1f" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M0,10 C-6,4 -9,-2 -10,-8" stroke="#c99b1f" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <g transform="translate(0 -22)">${grains}</g>
+  </g>`;
+}
+
+function hexArt(t) {
+  switch (t) {
+    case 'forest': return `
+      <ellipse cx="0" cy="40" rx="88" ry="26" fill="#237a41" opacity="0.5"/>
+      ${tree(-54, -4, 0.72)}
+      ${tree(54, 0, 0.78)}
+      ${tree(-16, -20, 0.95)}
+      ${tree(24, -18, 0.88)}
+      ${tree(-36, 24, 1)}
+      ${tree(38, 26, 1.05)}
+      ${tree(2, 14, 1.2)}
+      <ellipse cx="-58" cy="34" rx="11" ry="6" fill="#237a41"/>
+      <ellipse cx="62" cy="38" rx="12" ry="6" fill="#237a41"/>`;
+    case 'pasture': return `
+      <ellipse cx="0" cy="42" rx="88" ry="24" fill="#6fae33" opacity="0.5"/>
+      <g stroke="#5a9e2f" stroke-width="2.5" stroke-linecap="round" fill="none">
+        <path d="M-62,26 q3,-8 6,-10"/><path d="M-58,28 q1,-9 4,-12"/>
+        <path d="M58,32 q3,-8 6,-10"/><path d="M62,34 q1,-9 4,-12"/>
+      </g>
+      ${sheep(4, -12, 1.15)}
+      ${sheep(-34, 30, 0.62)}`;
+    case 'fields': return `
+      <g stroke="#d9a927" stroke-width="3" opacity="0.5" fill="none">
+        <path d="M-80,14 Q0,2 80,14"/>
+        <path d="M-80,38 Q0,26 80,38"/>
+      </g>
+      ${wheatStalk(-38, -4, 0.85, -14)}
+      ${wheatStalk(38, -4, 0.85, 14)}
+      ${wheatStalk(0, -14, 1.15, 0)}`;
+    case 'hills': return `
+      <ellipse cx="0" cy="40" rx="86" ry="26" fill="#c25a2e" opacity="0.55"/>
+      <g fill="#b3492a" stroke="#8f3620" stroke-width="1.5">
+        <rect x="-46" y="-30" width="21" height="12" rx="1"/>
+        <rect x="-23" y="-30" width="21" height="12" rx="1"/>
+        <rect x="0" y="-30" width="21" height="12" rx="1"/>
+        <rect x="23" y="-30" width="23" height="12" rx="1"/>
+        <rect x="-57" y="-16" width="21" height="12" rx="1"/>
+        <rect x="-34" y="-16" width="21" height="12" rx="1"/>
+        <rect x="-11" y="-16" width="21" height="12" rx="1"/>
+        <rect x="12" y="-16" width="21" height="12" rx="1"/>
+        <rect x="35" y="-16" width="21" height="12" rx="1"/>
+        <rect x="-46" y="-2" width="21" height="12" rx="1"/>
+        <rect x="-23" y="-2" width="21" height="12" rx="1"/>
+        <rect x="0" y="-2" width="21" height="12" rx="1"/>
+        <rect x="23" y="-2" width="23" height="12" rx="1"/>
+        <rect x="-34" y="12" width="21" height="12" rx="1"/>
+        <rect x="-11" y="12" width="21" height="12" rx="1"/>
+        <rect x="12" y="12" width="21" height="12" rx="1"/>
+      </g>
+      <g fill="#d4693f" opacity="0.7">
+        <rect x="-46" y="-30" width="21" height="3"/>
+        <rect x="-34" y="-16" width="21" height="3"/>
+        <rect x="-46" y="-2" width="21" height="3"/>
+        <rect x="-34" y="12" width="21" height="3"/>
+      </g>`;
+    case 'mountains': return `
+      <ellipse cx="0" cy="40" rx="88" ry="26" fill="#8d99ae" opacity="0.5"/>
+      <polygon points="-66,40 -24,-32 22,40" fill="#98a4b8" stroke="#5f6a78" stroke-width="2" stroke-linejoin="round"/>
+      <polygon points="14,40 46,-14 80,40" fill="#8d99ae" stroke="#5f6a78" stroke-width="2" stroke-linejoin="round"/>
+      <polygon points="40,-4 46,-14 52,-4 46,-8" fill="#f4f7fb"/>
+      <polygon points="-30,40 2,-16 34,40" fill="#8d99ae" stroke="#5f6a78" stroke-width="2" stroke-linejoin="round"/>
+      <polygon points="-6,-8 2,-16 10,-8 2,-12" fill="#f4f7fb"/>
+      <ellipse cx="-34" cy="38" rx="12" ry="7" fill="#7d838c"/>
+      <ellipse cx="46" cy="40" rx="14" ry="7" fill="#7d838c"/>`;
+    case 'desert': return `
+      <ellipse cx="0" cy="42" rx="88" ry="24" fill="#d9c88f" opacity="0.6"/>
+      <path d="M-70,28 Q-30,14 10,26 T80,22" stroke="#d9c88f" stroke-width="3" fill="none" opacity="0.7"/>
+      <g fill="#4c9e4a" stroke="#3d7d3a" stroke-width="2">
+        <rect x="-9" y="-30" width="18" height="56" rx="9"/>
+        <rect x="-26" y="-12" width="12" height="26" rx="6"/>
+        <rect x="-26" y="6" width="22" height="9" rx="4.5"/>
+        <rect x="14" y="-20" width="12" height="30" rx="6"/>
+        <rect x="12" y="2" width="22" height="9" rx="4.5"/>
+      </g>
+      <g stroke="#3d7d3a" stroke-width="1.5" opacity="0.5">
+        <line x1="-4" y1="-24" x2="-4" y2="22"/>
+        <line x1="3" y1="-24" x2="3" y2="22"/>
+      </g>
+      <ellipse cx="-40" cy="44" rx="8" ry="4" fill="#c9b782"/>
+      <ellipse cx="52" cy="46" rx="7" ry="3.5" fill="#c9b782"/>`;
+    default: return '';
+  }
+}
+
 // texturas sutiles por terreno (pattern userSpaceOnUse)
 function terrainPattern(defs, terrain, base) {
   const pat = el('pattern', { id: `tp-${terrain}`, width: 16, height: 16, patternUnits: 'userSpaceOnUse' }, defs);
@@ -78,8 +200,14 @@ export function renderBoard(svg, st, targets, onPick) {
   svg.innerHTML = '';
   svg.setAttribute('viewBox', '-400 -360 800 720');
 
-  // defs: arena, sombras y clips por hexágono
+  // defs: gradientes por terreno, arena y sombras
   const defs = el('defs', {}, svg);
+  for (const [terrain, base] of Object.entries(TERRAIN_FILL)) {
+    const lg = el('linearGradient', { id: `tg-${terrain}`, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    el('stop', { offset: '0%', 'stop-color': shade(base, 18) }, lg);
+    el('stop', { offset: '55%', 'stop-color': base }, lg);
+    el('stop', { offset: '100%', 'stop-color': shade(base, -12) }, lg);
+  }
   const sandLg = el('linearGradient', { id: 'tg-sand', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
   el('stop', { offset: '0%', 'stop-color': '#f6e8c3' }, sandLg);
   el('stop', { offset: '100%', 'stop-color': '#e6cf9e' }, sandLg);
@@ -106,7 +234,7 @@ export function renderBoard(svg, st, targets, onPick) {
   }, svg);
   el('polygon', { points: coastPts, fill: 'url(#tg-sand)', stroke: '#d9bf8d', 'stroke-width': 2.5, 'stroke-linejoin': 'round' }, svg);
 
-  // hex tiles: la ilustración de Fran recortada al hex + borde
+  // hexes: gradiente + ilustración vectorial, recortados al hex
   const TW = Math.sqrt(3) * S, TH = 2 * S;
   const gShadow = el('g', { 'pointer-events': 'none' }, svg);
   for (const h of st.board.hexes) {
@@ -118,12 +246,12 @@ export function renderBoard(svg, st, targets, onPick) {
     const cp = el('clipPath', { id: clipId }, defs);
     el('polygon', { points: hexPoints(h) }, cp);
     const g = el('g', { 'clip-path': `url(#${clipId})` }, gHex);
-    el('image', {
-      href: `tiles/${h.terrain}.png?v=2`,
-      x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1),
-      width: TW, height: TH,
-      preserveAspectRatio: 'xMidYMid slice',
+    el('rect', {
+      x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1), width: TW, height: TH,
+      fill: `url(#tg-${h.terrain})`,
     }, g);
+    const art = el('g', { transform: `translate(${h.x.toFixed(1)} ${(h.y - 6).toFixed(1)})` }, g);
+    art.innerHTML = hexArt(h.terrain);
     el('polygon', {
       points: hexPoints(h), fill: 'none',
       stroke: shade(TERRAIN_FILL[h.terrain], -30),
