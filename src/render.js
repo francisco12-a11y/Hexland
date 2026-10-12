@@ -12,6 +12,36 @@ export const TERRAIN_FILL = {
   desert: '#eae3b9',
 };
 
+function shade(hex, pct) {
+  // pct > 0 aclara, < 0 oscurece
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const f = (c) => Math.max(0, Math.min(255, Math.round(pct > 0 ? c + (255 - c) * (pct / 100) : c * (1 + pct / 100))));
+  return `#${((f(r) << 16) | (f(g) << 8) | f(b)).toString(16).padStart(6, '0')}`;
+}
+
+// texturas sutiles por terreno (pattern userSpaceOnUse)
+function terrainPattern(defs, terrain, base) {
+  const pat = el('pattern', { id: `tp-${terrain}`, width: 16, height: 16, patternUnits: 'userSpaceOnUse' }, defs);
+  const dark = shade(base, -20);
+  const light = shade(base, 25);
+  if (terrain === 'pasture' || terrain === 'forest') {
+    el('circle', { cx: 3, cy: 4, r: 1.7, fill: dark, opacity: 0.45 }, pat);
+    el('circle', { cx: 11, cy: 11, r: 1.7, fill: light, opacity: 0.5 }, pat);
+  } else if (terrain === 'fields') {
+    el('path', { d: 'M0,7 Q4,3.5 8,7 T16,7', stroke: dark, 'stroke-width': 1.6, fill: 'none', opacity: 0.45 }, pat);
+    el('path', { d: 'M0,15 Q4,11.5 8,15 T16,15', stroke: dark, 'stroke-width': 1.6, fill: 'none', opacity: 0.3 }, pat);
+  } else if (terrain === 'hills') {
+    el('path', { d: 'M3,13 L13,3', stroke: dark, 'stroke-width': 2, 'stroke-linecap': 'round', opacity: 0.4 }, pat);
+  } else if (terrain === 'mountains') {
+    el('circle', { cx: 4, cy: 5, r: 1.9, fill: dark, opacity: 0.55 }, pat);
+    el('circle', { cx: 12, cy: 12, r: 1.5, fill: light, opacity: 0.7 }, pat);
+  } else {
+    el('circle', { cx: 4, cy: 4, r: 1.4, fill: shade(base, -18), opacity: 0.55 }, pat);
+    el('circle', { cx: 12, cy: 11, r: 1.2, fill: shade(base, -18), opacity: 0.45 }, pat);
+  }
+}
+
 // iconos vectoriales tone-on-tone (estilo colonist), dibujados en coords
 // locales centradas en (0,0) ~34px
 const TERRAIN_ICONS = {
@@ -97,36 +127,57 @@ export function renderBoard(svg, st, targets, onPick) {
   svg.innerHTML = '';
   svg.setAttribute('viewBox', '-400 -360 800 720');
 
+  // defs: gradientes + texturas por terreno, arena y sombras
+  const defs = el('defs', {}, svg);
+  for (const [terrain, base] of Object.entries(TERRAIN_FILL)) {
+    const lg = el('linearGradient', { id: `tg-${terrain}`, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    el('stop', { offset: '0%', 'stop-color': shade(base, 20) }, lg);
+    el('stop', { offset: '55%', 'stop-color': base }, lg);
+    el('stop', { offset: '100%', 'stop-color': shade(base, -14) }, lg);
+    terrainPattern(defs, terrain, base);
+  }
+  const sandLg = el('linearGradient', { id: 'tg-sand', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el('stop', { offset: '0%', 'stop-color': '#f6e8c3' }, sandLg);
+  el('stop', { offset: '100%', 'stop-color': '#e6cf9e' }, sandLg);
+  const fTok = el('filter', { id: 'f-tok', x: '-40%', y: '-40%', width: '180%', height: '180%' }, defs);
+  el('feDropShadow', { dx: 0, dy: 2.5, stdDeviation: 1.8, 'flood-color': '#08243e', 'flood-opacity': 0.4 }, fTok);
+  const fPiece = el('filter', { id: 'f-piece', x: '-40%', y: '-40%', width: '180%', height: '180%' }, defs);
+  el('feDropShadow', { dx: 0, dy: 2, stdDeviation: 1.5, 'flood-color': '#08243e', 'flood-opacity': 0.45 }, fPiece);
+
   // sea
   el('rect', { x: -400, y: -360, width: 800, height: 720, fill: SEA }, svg);
   for (const [x, y, e] of DOODLES) {
     el('text', { x, y, 'font-size': 40, opacity: 0.08, 'text-anchor': 'middle' }, svg).textContent = e;
   }
 
-  // island coast: white foam ring + sand ring under the hexes
+  // island coast: shadow + white foam + sand platform
   const coastPts = st.board.coast
     .map((vid) => st.board.vertices[vid])
     .map((v) => `${v.x.toFixed(1)},${v.y.toFixed(1)}`)
     .join(' ');
+  el('polygon', { points: coastPts, fill: 'rgba(8,30,55,0.30)', transform: 'translate(0 9)' }, svg);
   el('polygon', {
-    points: coastPts, fill: SAND, stroke: '#eef6ff', 'stroke-width': 58,
+    points: coastPts, fill: SAND, stroke: '#eef6ff', 'stroke-width': 56,
     'stroke-linejoin': 'round', opacity: 0.95,
   }, svg);
-  el('polygon', {
-    points: coastPts, fill: SAND, stroke: SAND, 'stroke-width': 40, 'stroke-linejoin': 'round',
-  }, svg);
+  el('polygon', { points: coastPts, fill: 'url(#tg-sand)', stroke: '#d9bf8d', 'stroke-width': 2.5, 'stroke-linejoin': 'round' }, svg);
 
-  // hexes
+  // hex shadows first, then tiles
+  const gShadow = el('g', { 'pointer-events': 'none' }, svg);
+  for (const h of st.board.hexes) {
+    el('polygon', { points: hexPoints(h), fill: 'rgba(8,30,55,0.22)', transform: 'translate(0 4.5)' }, gShadow);
+  }
   const gHex = el('g', {}, svg);
   for (const h of st.board.hexes) {
     el('polygon', {
       points: hexPoints(h),
-      fill: TERRAIN_FILL[h.terrain],
-      stroke: 'rgba(255,255,255,0.5)',
-      'stroke-width': 2,
+      fill: `url(#tg-${h.terrain})`,
+      stroke: shade(TERRAIN_FILL[h.terrain], -26),
+      'stroke-width': 5,
       'stroke-linejoin': 'round',
       'data-hid': h.id,
     }, gHex);
+    el('polygon', { points: hexPoints(h), fill: `url(#tp-${h.terrain})`, 'pointer-events': 'none' }, gHex);
   }
 
   // flashing border on every hex matching the last roll (white on navy: visible on any terrain)
@@ -152,8 +203,8 @@ export function renderBoard(svg, st, targets, onPick) {
     g.innerHTML = TERRAIN_ICONS[h.terrain] || '';
   }
 
-  // number tokens: white rounded cards
-  const gNum = el('g', { 'pointer-events': 'none' }, svg);
+  // number tokens: white rounded cards with shadow
+  const gNum = el('g', { 'pointer-events': 'none', filter: 'url(#f-tok)' }, svg);
   for (const h of st.board.hexes) {
     if (!h.number) continue;
     const red = h.number === 6 || h.number === 8;
@@ -185,7 +236,7 @@ export function renderBoard(svg, st, targets, onPick) {
 
   // robber token
   const rHex = st.board.hexes.find((h) => h.id === st.robber);
-  const gRob = el('g', { transform: `translate(${rHex.x + 32} ${rHex.y + 34})`, 'pointer-events': 'none' }, svg);
+  const gRob = el('g', { transform: `translate(${rHex.x + 32} ${rHex.y + 34})`, 'pointer-events': 'none', filter: 'url(#f-piece)' }, svg);
   el('circle', { r: 13, fill: '#5a5f66', stroke: '#fff', 'stroke-width': 2.5 }, gRob);
   el('text', { y: 4.5, 'text-anchor': 'middle', 'font-size': 14 }, gRob).textContent = '🦹';
 
@@ -211,7 +262,7 @@ export function renderBoard(svg, st, targets, onPick) {
   }
 
   // roads: player color with white outline
-  const gRoad = el('g', {}, svg);
+  const gRoad = el('g', { filter: 'url(#f-piece)' }, svg);
   for (const p of st.players) {
     for (const eid of p.roads) {
       const e = st.board.edges[eid];
@@ -221,24 +272,25 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
-  // buildings: player color with white outline
-  const gB = el('g', {}, svg);
+  // buildings: two-tone (sombra base + techo claro) con borde blanco
+  const gB = el('g', { filter: 'url(#f-piece)' }, svg);
   for (const p of st.players) {
+    const dark = shade(p.color, -18);
+    const light = shade(p.color, 28);
     for (const vid of p.settlements) {
       const v = st.board.vertices[vid];
-      el('path', {
-        d: 'M-9 4 L-9 -4 L0 -12 L9 -4 L9 4 Z',
-        transform: `translate(${v.x} ${v.y})`,
-        fill: p.color, stroke: '#f8f8f2', 'stroke-width': 2.4, 'stroke-linejoin': 'round',
-      }, gB);
+      const g = el('g', { transform: `translate(${v.x} ${v.y})` }, gB);
+      el('path', { d: 'M-9 4 L-9 -4 L9 -4 L9 4 Z', fill: dark, stroke: '#f8f8f2', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, g);
+      el('path', { d: 'M-10 -4 L0 -13 L10 -4 Z', fill: p.color, stroke: '#f8f8f2', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, g);
+      el('path', { d: 'M-6 -6 L0 -11 L6 -6', fill: 'none', stroke: light, 'stroke-width': 2, 'stroke-linecap': 'round' }, g);
     }
     for (const vid of p.cities) {
       const v = st.board.vertices[vid];
-      el('path', {
-        d: 'M-12 4 L-12 -4 L-5 -10 L-5 -4 L5 -4 L5 -12 L12 -12 L12 4 Z',
-        transform: `translate(${v.x} ${v.y})`,
-        fill: p.color, stroke: '#f8f8f2', 'stroke-width': 2.4, 'stroke-linejoin': 'round',
-      }, gB);
+      const g = el('g', { transform: `translate(${v.x} ${v.y})` }, gB);
+      el('path', { d: 'M-12 4 L-12 -4 L12 -4 L12 4 Z', fill: dark, stroke: '#f8f8f2', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, g);
+      el('path', { d: 'M-12 4 L-12 -4 L-5 -4 L-5 -11 L-11 -11 L-11 -4', fill: p.color, stroke: '#f8f8f2', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, g);
+      el('path', { d: 'M-5 -4 L-5 -11 L12 -11 L12 4 L5 4 L5 -4 Z', fill: p.color, stroke: '#f8f8f2', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, g);
+      el('path', { d: 'M-9 -6 L-5 -9', fill: 'none', stroke: light, 'stroke-width': 2, 'stroke-linecap': 'round' }, g);
     }
   }
 
