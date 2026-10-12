@@ -69,6 +69,7 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map =
     dice: null, turn: 1, winner: null,
     lastProduced: [], lastGain: {},
     stealCandidates: [], // a quién puede robar quien movió al ladrón (deriva UI)
+    pendingGold: [],     // oro: [{pid, count}] — elecciones de recurso pendientes
     lastRollWas7: false, // regla de casa: no permite dos 7 seguidos
     devPlayed: false,    // una sola carta de desarrollo por turno
     freeRoads: 0,        // caminos gratis pendientes (construcción de caminos)
@@ -265,6 +266,23 @@ function produce(st, sum) {
   for (const hex of st.board.hexes) {
     if (hex.number !== sum || hex.terrain === 'desert' || st.robber === hex.id) continue;
     if (hexHidden(st, hex.id)) continue; // niebla: sin descubrir no produce
+    // oro: no da una carta fija — el dueño del edificio elige recurso después
+    if (hex.terrain === 'gold') {
+      let n = 0;
+      for (const vid of hex.vertices) {
+        for (const p of st.players) {
+          const k = p.settlements.includes(vid) ? 1 : p.cities.includes(vid) ? 2 : 0;
+          if (!k) continue;
+          n += k;
+          const entry = st.pendingGold.find((g) => g.pid === p.id);
+          if (entry) entry.count += k;
+          else st.pendingGold.push({ pid: p.id, count: k });
+          log(st, `🪙 ${p.name} ganó oro: puede elegir ${k} recurso${k > 1 ? 's' : ''} (madera, trigo, ladrillo o piedra).`);
+        }
+      }
+      if (n) st.lastGain[hex.id] = { n, res: 'gold' };
+      continue;
+    }
     let hexGain = 0;
     for (const vid of hex.vertices) {
       for (const p of st.players) {
@@ -583,8 +601,23 @@ export function bankTrade(st, give, get) {
   return OK;
 }
 
+export const GOLD_CHOICES = ['wood', 'wheat', 'brick', 'ore']; // sin oveja, como pidió Fran
+
+export function takeGold(st, res) {
+  const entry = st.pendingGold[0];
+  if (!entry) return err('No hay oro por cobrar');
+  if (!GOLD_CHOICES.includes(res)) return err('Elegí madera, trigo, ladrillo o piedra');
+  const p = st.players[entry.pid];
+  p.res[res]++;
+  entry.count--;
+  log(st, `🪙 ${p.name} eligió ${RES_EMOJI[res]} con el oro.`);
+  if (entry.count <= 0) st.pendingGold.shift();
+  return OK;
+}
+
 export function endTurn(st) {
   if (st.phase !== 'main') return err('Terminá lo pendiente antes');
+  if (st.pendingGold.length) return err('Cobrá el oro antes de terminar el turno');
   st.current = (st.current + 1) % st.players.length;
   if (st.current === 0) st.turn++;
   st.phase = 'roll';

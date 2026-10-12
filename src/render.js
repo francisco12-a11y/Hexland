@@ -10,6 +10,7 @@ export const TERRAIN_FILL = {
   fields: '#f2c94c',
   pasture: '#8cc63f',
   desert: '#eae3b9',
+  gold: '#d9a50f',
 };
 
 function shade(hex, pct) {
@@ -453,5 +454,5 @@ export function renderBoard(svg, st, targets, onPick) {
 }
 
 function portEmoji(type) {
-  return { wood: '🌲', brick: '🧱', sheep: '🐑', wheat: '🌾', ore: '⛰️' }[type] || '';
+  return { wood: '🌲', brick: '🧱', sheep: '🐑', wheat: '🌾', ore: '⛰️', gold: '🪙' }[type] || '';
 }

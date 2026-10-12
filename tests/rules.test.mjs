@@ -789,3 +789,93 @@ test('niebla: recompensa de descubrimiento — quien revela se lleva 1 recurso d
   assert.deepEqual(p.res, expected, 'cada hex revelado paga +1 de su recurso');
   assert.ok(st.log.some((l) => l.includes('(+1')), 'log con la recompensa');
 });
+
+// ---------- mapa oro ----------
+
+test('oro: estructura fija (desierto afuera, piedra adentro, oro al centro con 8)', () => {
+  for (const seed of [7, 42, 999]) {
+    const b = generateBoard(seed, 'oro');
+    assert.equal(b.hexes.length, 37);
+    const terr = {};
+    b.hexes.forEach((h) => { terr[h.terrain] = (terr[h.terrain] || 0) + 1; });
+    assert.equal(terr.desert, 18);
+    assert.equal(terr.mountains, 9);
+    assert.equal(terr.forest, 3);
+    assert.equal(terr.pasture, 3);
+    assert.equal(terr.hills, 3);
+    // oro fijo en el centro con su 8
+    const gold = b.hexes.find((h) => h.terrain === 'gold');
+    assert.equal(gold.number, 8);
+    assert.equal(gold.q, 0); assert.equal(gold.r, 0);
+    // los desiertos no tienen número y son el anillo externo (todos a distancia 3)
+    for (const h of b.hexes) {
+      if (h.terrain !== 'desert') continue;
+      const d = (Math.abs(h.q) + Math.abs(h.r) + Math.abs(h.q + h.r)) / 2;
+      assert.equal(d, 3);
+      assert.equal(h.number, 0);
+    }
+    // layout de anillos fijo entre semillas
+    const layout = (bd) => bd.hexes.map((h) => [h.q, h.r, h.terrain]);
+    if (seed === 7) { /* primera pasada */ } else {
+      const a = generateBoard(7, 'oro');
+      assert.deepEqual(layout(a), layout(b), 'piedra/desierto/oro siempre en el mismo lugar');
+    }
+    // números sin 6/8 pegados (contando el 8 del oro)
+    const numbered = b.hexes.filter((h) => h.number);
+    for (const x of numbered) for (const y of numbered) {
+      if (x.id >= y.id) continue;
+      const adj = (Math.abs(x.q - y.q) + Math.abs(x.r - y.r) + Math.abs(x.q + x.r - y.q - y.r)) / 2;
+      assert.ok(!(adj === 1 && [6, 8].includes(x.number) && [6, 8].includes(y.number)), '6/8 pegados');
+    }
+    assert.equal(b.ports.length, 9);
+    assert.equal(b.coast.length, 42);
+  }
+});
+
+test('oro: al producir te deja elegir recurso (pueblo 1, ciudad 2) y bloquea el fin de turno', () => {
+  const st = G.newGame(['A', 'B'], 7, null, 'oro');
+  assert.equal(st.map, 'oro');
+  // asentamiento junto al oro (los vértices del hex central)
+  const gold = st.board.hexes.find((h) => h.terrain === 'gold');
+  G.placeSetupSettlement(st, gold.vertices[0]);
+  G.placeSetupRoad(st, G.setupRoadSpots(st, 0)[0]);
+  G.placeSetupSettlement(st, G.settlementSpots(st, 1, true)[0]);
+  G.placeSetupRoad(st, G.setupRoadSpots(st, 1)[0]);
+  G.placeSetupSettlement(st, G.settlementSpots(st, 0, true)[0]);
+  G.placeSetupRoad(st, G.setupRoadSpots(st, 0)[0]);
+  G.placeSetupSettlement(st, G.settlementSpots(st, 1, true)[0]);
+  G.placeSetupRoad(st, G.setupRoadSpots(st, 1)[0]);
+  for (const p of st.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
+  // pueblo junto al oro + tirada del 8 → pendiente de elección, sin carta directa
+  const antes = { ...st.players[0].res };
+  forceRoll(st, 8);
+  assert.deepEqual(st.pendingGold, [{ pid: 0, count: 1 }]);
+  assert.deepEqual(st.players[0].res, antes, 'el oro no da carta directa');
+  assert.equal(st.lastGain[gold.id].res, 'gold');
+  // no puede terminar el turno sin cobrar
+  assert.equal(G.endTurn(st).ok, false);
+  // oveja no es opción; piedra sí
+  assert.equal(G.takeGold(st, 'sheep').ok, false);
+  assert.ok(G.takeGold(st, 'ore').ok);
+  assert.equal(st.players[0].res.ore, 1);
+  assert.deepEqual(st.pendingGold, []);
+  assert.ok(G.endTurn(st).ok);
+  // ciudad junto al oro → 2 elecciones (endTurn dejó el turno en el jugador 1)
+  st.current = 0;
+  st.phase = 'main';
+  const p0 = st.players[0];
+  for (const r of G.RESOURCES) p0.res[r] = 10;
+  // convierte en ciudad un asentamiento junto al oro
+  const goldV = gold.vertices.find((v) => p0.settlements.includes(v));
+  if (goldV != null) {
+    assert.ok(G.buildCity(st, goldV).ok, 'ciudad junto al oro');
+    st.phase = 'roll';
+    for (const p of st.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
+    forceRoll(st, 8);
+    assert.deepEqual(st.pendingGold, [{ pid: 0, count: 2 }]);
+    assert.ok(G.takeGold(st, 'wheat').ok);
+    assert.deepEqual(st.pendingGold, [{ pid: 0, count: 1 }]);
+    assert.ok(G.takeGold(st, 'brick').ok);
+    assert.deepEqual(st.pendingGold, []);
+  }
+});

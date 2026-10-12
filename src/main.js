@@ -259,6 +259,7 @@ const HOST_ACTIONS = {
   playRoadBuilding: (st, a) => G.playRoadBuilding(st, a[0]),
   playYearOfPlenty: (st, a) => G.playYearOfPlenty(st, a[0], a[1], a[2]),
   playMonopoly: (st, a) => G.playMonopoly(st, a[0], a[1]),
+  takeGold: (st, a) => G.takeGold(st, a[0]),
   endTurn: (st) => G.endTurn(st),
 };
 
@@ -268,7 +269,9 @@ function hostApply(kind, args, byPid) {
   if (!fn) return { ok: false, err: 'Acción desconocida' };
   const owner = kind === 'discard'
     ? game.pendingDiscards[0]
-    : game.phase === 'setup'
+    : kind === 'takeGold'
+      ? game.pendingGold[0]?.pid
+      : game.phase === 'setup'
       ? game.setupQueue[game.setupIdx]
       : game.current;
   if (owner !== byPid) return { ok: false, err: 'No es tu turno' };
@@ -300,6 +303,7 @@ function onlineUiFromState() {
   if (!game || !session.online) return;
   const modalOpen = !!$('#overlay .modal');
   if (game.phase === 'discard' && game.pendingDiscards[0] === session.myId && !modalOpen) discardChain();
+  if (game.pendingGold?.length && game.pendingGold[0].pid === session.myId && !modalOpen) goldChain();
   if (game.stealCandidates?.length && game.current === session.myId && !modalOpen) showStealModal(game.stealCandidates);
   if (game.phase === 'over' && !modalOpen) showWin();
 }
@@ -453,6 +457,7 @@ function doRoll() {
       clearInterval(iv);
       renderAll();
       if (game.phase === 'discard') discardChain();
+      else if (game.pendingGold?.length) goldChain();
     }
   }, 70);
 }
@@ -626,7 +631,10 @@ function renderPrompt() {
   } else if (game.phase === 'roll') {
     msg = waiting ? `⏳ ${p.name} está por tirar…` : `🎲 ${session.online ? 'Tocá el panel de dados' : p.name + ': tirá los dados'}`;
   } else if (game.phase === 'main') {
-    if (game.freeRoads > 0 && !waiting) {
+    if (game.pendingGold?.length) {
+      const gp = game.players[game.pendingGold[0].pid];
+      msg = `🪙 ${gp.name}: elegí tu recurso del oro`;
+    } else if (game.freeRoads > 0 && !waiting) {
       msg = `🛣️ ${p.name}: colocá un camino gratis (${game.freeRoads} restante${game.freeRoads === 1 ? '' : 's'})`;
     } else {
       msg = mode ? `👉 ${p.name}: ${modeHint(mode)}` : `🔨 ${p.name}: construí, comerciá o terminá tu turno`;
@@ -822,6 +830,28 @@ function discardChain() {
       commit();
     }
   };
+}
+
+function goldChain() {
+  const entry = game.pendingGold && game.pendingGold[0];
+  if (!entry) { renderAll(); return; }
+  const p = game.players[entry.pid];
+  const m = showModal(`
+    <h2>🪙 Oro</h2>
+    <p class="sub"><b>${p.name}</b>: elegí un recurso${entry.count > 1 ? ` (te quedan ${entry.count})` : ''}.</p>
+    <div class="pickgrid" id="goldgrid"></div>`);
+  const grid = m.querySelector('#goldgrid');
+  for (const r of G.GOLD_CHOICES) {
+    const b = document.createElement('button');
+    b.className = 'pick';
+    b.innerHTML = `${G.RES_EMOJI[r]}<small style="display:block;font-size:11px;color:var(--muted)">${resName(r)}</small>`;
+    b.onclick = () => {
+      const done = () => { if (game.pendingGold.length) goldChain(); else { hideModal(); renderAll(); } };
+      if (session.online) act('takeGold', [r]).then((x) => { if (x.ok) done(); else flash(x.err); });
+      else { const x = G.takeGold(game, r); if (x.ok) done(); else flash(x.err); }
+    };
+    grid.appendChild(b);
+  }
 }
 
 function showMonopolyModal(idx) {

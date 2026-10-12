@@ -56,6 +56,7 @@ function axialDist(a, b) {
 
 export function generateBoard(seed, map = 'clasico') {
   if (map === 'niebla') return generateFogBoard(seed);
+  if (map === 'oro') return generateOroBoard(seed);
   const rng = mulberry32(seed);
   const terrains = shuffle([...TERRAIN_DECK], rng);
 
@@ -343,4 +344,161 @@ export function generateFogBoard(seed) {
   const robber = wood[Math.floor(rng() * wood.length)].id;
 
   return { hexes, vertices, edges, ports, coast, robber, seed, map: 'niebla' };
+}
+
+// ---------- mapa oro: anillo de desierto + núcleo de piedra + oro central ----------
+
+// radio-3 (37 hexes). Layout FIJO como la referencia de Fran:
+//  - centro: oro con ficha 8
+//  - anillo 1 (6): piedra
+//  - anillo 2 (12): medios de anillo = piedra (3), esquinas = bosque/pastura/ladrillo
+//  - anillo 3 (18): desierto puro, sin números
+// Los números de los 18 hexes interiores se mezclan en cada partida (TOKENS+[9]
+// sin un 8, que es el del oro), sin 6/8 pegados entre sí ni con el oro.
+const ORO_CORNERS = ['forest', 'hills', 'pasture', 'forest', 'hills', 'pasture'];
+const ORO_RING2_MIDS = ['mountains', 'forest', 'mountains', 'pasture', 'mountains', 'hills'];
+const RING_DIRS = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
+
+function oroCells() {
+  const cells = [];
+  for (let r = -3; r <= 3; r++) {
+    for (let q = Math.max(-3, -3 - r); q <= Math.min(3, 3 - r); q++) {
+      const d = (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2;
+      if (d === 0) cells.push({ q, r, kind: 'gold', terrain: 'gold', number: 8 });
+      else if (d === 1) cells.push({ q, r, kind: 'land', terrain: 'mountains' });
+      else if (d === 2) cells.push({ q, r, kind: 'land' }); // terrain abajo
+      else cells.push({ q, r, kind: 'desert', terrain: 'desert', number: 0 });
+    }
+  }
+  // anillo 2: esquinas (2× dir) y medios (dir1+dir2) — el anillo 1 ya tiene piedra
+  for (const cell of cells) {
+    if (cell.kind !== 'land' || (Math.abs(cell.q) + Math.abs(cell.r) + Math.abs(cell.q + cell.r)) / 2 !== 2) continue;
+    const cornerIdx = RING_DIRS.findIndex(([dq, dr]) => cell.q === 2 * dq && cell.r === 2 * dr);
+    if (cornerIdx !== -1) { cell.terrain = ORO_CORNERS[cornerIdx]; continue; }
+    const midIdx = RING_DIRS.findIndex(([dq, dr], i) => {
+      const [dq2, dr2] = RING_DIRS[(i + 1) % 6];
+      return cell.q === dq + dq2 && cell.r === dr + dr2;
+    });
+    cell.terrain = ORO_RING2_MIDS[midIdx];
+  }
+  return cells;
+}
+
+export function generateOroBoard(seed) {
+  const rng = mulberry32(seed);
+  const cells = oroCells();
+
+  // números: 18 fichas para ring1+ring2 (el oro ya tiene su 8 fijo)
+  const pool = [...TOKENS, 9];
+  pool.splice(pool.indexOf(8), 1); // 18 fichas: TOKENS con un 8 menos, +1 nueve
+  const interior = cells.filter((c) => c.kind === 'land');
+  for (let attempt = 0; attempt < 800; attempt++) {
+    const cand = shuffle([...pool], rng);
+    interior.forEach((c, i) => { c.number = cand[i]; });
+    // sin 6/8 pegados entre los numerados (el 8 del oro incluye)
+    let ok = true;
+    outer: for (let i = 0; i < cells.length; i++) {
+      if (cells[i].number !== 6 && cells[i].number !== 8) continue;
+      for (let j = i + 1; j < cells.length; j++) {
+        if ((cells[j].number === 6 || cells[j].number === 8) && axialDist(cells[i], cells[j]) === 1) {
+          ok = false; break outer;
+        }
+      }
+    }
+    if (ok) break;
+    if (attempt === 799) shuffle([...pool], rng).forEach((n, i) => { interior[i].number = n; });
+  }
+
+  const hexes = [], vertices = [], edges = [];
+  const vMap = new Map(), eMap = new Map();
+  cells.forEach((cell, i) => {
+    const { x, y } = hexCenter(cell.q, cell.r);
+    const hex = { id: i, q: cell.q, r: cell.r, x, y, terrain: cell.terrain, number: cell.number, vertices: [], edges: [] };
+    const cornerIds = [];
+    for (let c = 0; c < 6; c++) {
+      const p = hexCorner(x, y, c);
+      const key = `${Math.round(p.x * 10)}|${Math.round(p.y * 10)}`;
+      if (!vMap.has(key)) {
+        const v = { id: vMap.size, x: p.x, y: p.y, hexes: [], edges: [] };
+        vMap.set(key, v); vertices.push(v);
+      }
+      const v = vMap.get(key);
+      v.hexes.push(hex.id);
+      hex.vertices.push(v.id);
+      cornerIds.push(v.id);
+    }
+    for (let c = 0; c < 6; c++) {
+      const a = cornerIds[c], b = cornerIds[(c + 1) % 6];
+      const key = `${Math.min(a, b)}-${Math.max(a, b)}`;
+      if (!eMap.has(key)) {
+        const e = { id: eMap.size, a: Math.min(a, b), b: Math.max(a, b), hexes: [] };
+        eMap.set(key, e); edges.push(e);
+      }
+      const e = eMap.get(key);
+      e.hexes.push(hex.id);
+      hex.edges.push(e.id);
+    }
+    hexes.push(hex);
+  });
+
+  for (const v of vertices) v.neighbors = [];
+  for (const e of edges) {
+    vertices[e.a].edges.push(e.id);
+    vertices[e.b].edges.push(e.id);
+    vertices[e.a].neighbors.push(e.b);
+    vertices[e.b].neighbors.push(e.a);
+  }
+
+  // costa exterior (el anillo de desierto es tierra: el ciclo es el borde del todo)
+  const perim = edges.filter((e) => e.hexes.length === 1);
+  const atVertex = new Map();
+  for (const e of perim) {
+    for (const vid of [e.a, e.b]) {
+      if (!atVertex.has(vid)) atVertex.set(vid, []);
+      atVertex.get(vid).push(e.id);
+    }
+  }
+  const cycle = [perim[0].id];
+  let prev = perim[0], curV = perim[0].b;
+  while (cycle.length < perim.length) {
+    const nextId = atVertex.get(curV).find((eid) => eid !== prev.id);
+    if (nextId == null) break;
+    cycle.push(nextId);
+    prev = edges[nextId];
+    curV = prev.a === curV ? prev.b : prev.a;
+  }
+  const coast = [];
+  {
+    let v = perim[0].a;
+    for (const eid of cycle) {
+      coast.push(v);
+      const e = edges[eid];
+      v = e.a === v ? e.b : e.a;
+    }
+  }
+
+  // puertos: 9 en marco fijo, repartidos parejo sobre los 42 vértices costeros
+  const PORT_TYPES = ['3:1', 'wood', '3:1', 'sheep', '3:1', 'ore', '3:1', 'brick', 'wheat'];
+  const starts = [0, 5, 9, 14, 19, 23, 28, 33, 37]; // huecos de 4-5 vértices
+  const ports = starts.map((s, i) => {
+    const ia = coast[s % coast.length], ib = coast[(s + 1) % coast.length];
+    const a = vertices[ia], b = vertices[ib];
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const elen = Math.hypot(dx, dy) || 1;
+    let nx = -dy / elen, ny = dx / elen;
+    if (nx * mx + ny * my < 0) { nx = -nx; ny = -ny; } // hacia el mar
+    return {
+      id: i, type: PORT_TYPES[i], vids: [ia, ib],
+      mx, my, nx, ny,
+      px: mx + nx * 40, py: my + ny * 40,
+      sx: mx + nx * 68, sy: my + ny * 68,
+      ix: mx + nx * 98, iy: my + ny * 98,
+    };
+  });
+
+  // el ladrón arranca en el desierto (igual que el clásico)
+  const desert = hexes.find((h) => h.terrain === 'desert');
+
+  return { hexes, vertices, edges, ports, coast, robber: desert.id, seed, map: 'oro' };
 }
