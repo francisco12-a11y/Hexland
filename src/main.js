@@ -818,6 +818,12 @@ document.addEventListener('keydown', (e) => {
 // the dice panel itself is the roll button
 $('#diceres').addEventListener('click', () => doRoll());
 
+// drawer de registro/banco en mobile
+$('#panel-toggle').onclick = () => $('#rightpanel').classList.toggle('open');
+$('#rightpanel').addEventListener('click', (e) => {
+  if (e.target.id === 'rightpanel') $('#rightpanel').classList.remove('open');
+});
+
 buildLobby();
 $('#play').onclick = startGame;
 $('#mk-room').onclick = createRoom;

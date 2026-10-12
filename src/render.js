@@ -11,7 +11,56 @@ export const TERRAIN_FILL = {
   pasture: '#8cc63f',
   desert: '#eae3b9',
 };
-const TERRAIN_ICON = { hills: '🧱', forest: '🌲', mountains: '🪨', fields: '🌾', pasture: '🐑', desert: '🌵' };
+
+// iconos vectoriales tone-on-tone (estilo colonist), dibujados en coords
+// locales centradas en (0,0) ~34px
+const TERRAIN_ICONS = {
+  forest: `
+    <rect x="-3.5" y="4" width="7" height="12" rx="2" fill="#7a4a26"/>
+    <polygon points="0,-19 12,-2 -12,-2" fill="#1e7a40" stroke="#14532b" stroke-width="1.5" stroke-linejoin="round"/>
+    <polygon points="0,-7 16,11 -16,11" fill="#26894b" stroke="#14532b" stroke-width="1.5" stroke-linejoin="round"/>`,
+  pasture: `
+    <rect x="-8" y="7" width="4" height="8" rx="1.5" fill="#6b6459"/>
+    <rect x="4" y="7" width="4" height="8" rx="1.5" fill="#6b6459"/>
+    <ellipse cx="0" cy="3" rx="15" ry="10" fill="#fdfcf7" stroke="#b9b3a2" stroke-width="1.5"/>
+    <circle cx="11" cy="-3" r="5.5" fill="#5a544a"/>`,
+  fields: `
+    <g stroke="#b8860b" stroke-width="2.5" stroke-linecap="round" fill="none">
+      <path d="M0,15 L0,-12"/>
+      <path d="M-9,15 C-9,2 -11,-3 -12,-7"/>
+      <path d="M9,15 C9,2 11,-3 12,-7"/>
+    </g>
+    <g fill="#b8860b">
+      <ellipse cx="0" cy="-13" rx="3" ry="5.5"/>
+      <ellipse cx="-12.5" cy="-8" rx="3" ry="5.5" transform="rotate(-32 -12.5 -8)"/>
+      <ellipse cx="12.5" cy="-8" rx="3" ry="5.5" transform="rotate(32 12.5 -8)"/>
+    </g>`,
+  hills: `
+    <g fill="#a8492a" stroke="#8a3a20" stroke-width="1">
+      <rect x="-15" y="-13" width="14" height="8" rx="1"/>
+      <rect x="1" y="-13" width="14" height="8" rx="1"/>
+      <rect x="-15" y="-3" width="6" height="8" rx="1"/>
+      <rect x="-7" y="-3" width="14" height="8" rx="1"/>
+      <rect x="9" y="-3" width="6" height="8" rx="1"/>
+      <rect x="-15" y="7" width="14" height="8" rx="1"/>
+      <rect x="1" y="7" width="14" height="8" rx="1"/>
+    </g>`,
+  mountains: `
+    <g stroke="#6d747d" stroke-width="1.5">
+      <ellipse cx="-8" cy="3" rx="11" ry="8" fill="#8d99ae"/>
+      <ellipse cx="8" cy="5" rx="12" ry="9" fill="#9aa5b8"/>
+      <ellipse cx="1" cy="-7" rx="9" ry="7" fill="#8d99ae"/>
+      <ellipse cx="-2" cy="-10" rx="4" ry="2.5" fill="#c6ccd6" stroke="none"/>
+    </g>`,
+  desert: `
+    <g fill="#5c9e4a" stroke="#47793a" stroke-width="1.5">
+      <rect x="-4" y="-14" width="9" height="27" rx="4.5"/>
+      <rect x="-14" y="-3" width="9" height="4" rx="2"/>
+      <rect x="-14" y="-11" width="4.5" height="12" rx="2.25"/>
+      <rect x="6" y="1" width="9" height="4" rx="2"/>
+      <rect x="11" y="-8" width="4.5" height="13" rx="2.25"/>
+    </g>`,
+};
 const SEA = '#2f6fb5';
 const SAND = '#f0dfb2';
 
@@ -96,12 +145,11 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
-  // terrain icons
+  // terrain icons (vectoriales)
   const gIcon = el('g', { 'pointer-events': 'none' }, svg);
   for (const h of st.board.hexes) {
-    el('text', {
-      x: h.x, y: h.y - 22, 'font-size': 36, 'text-anchor': 'middle', opacity: 0.95,
-    }, gIcon).textContent = TERRAIN_ICON[h.terrain];
+    const g = el('g', { transform: `translate(${h.x.toFixed(1)} ${(h.y - 24).toFixed(1)})`, opacity: 0.95 }, gIcon);
+    g.innerHTML = TERRAIN_ICONS[h.terrain] || '';
   }
 
   // number tokens: white rounded cards
