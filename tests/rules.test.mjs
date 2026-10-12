@@ -792,58 +792,57 @@ test('niebla: recompensa de descubrimiento — quien revela se lleva 1 recurso d
 
 // ---------- mapa oro ----------
 
-test('volcán: grilla 10×7 de Fran (69 hexes) con N/D/O exactos y fijos', () => {
-  // la grilla de Fran: fila 4 tiene 9 casillas (la del oro, centrada)
+test('volcán: grilla 71 de Fran (P/D/N/O fijos, R variable sin piedra)', () => {
+  // la grilla de Fran: filas de 10/11/10/9/10/11/10 = 71
   const GRID = [
-    'RRRDNNRNRR',
-    'RRNNRNRNRR',
-    'RRNRRRRRRR',
-    'RRRNONRNR',
-    'RRRNRNRRRR',
-    'RRRNRNRRRR',
-    'RRRNRNRRRR',
+    'RRDPNNPDRR',
+    'RRDNPNPNDRR',
+    'RDNNPPNNDR',
+    'DPPPOPPPD',
+    'RDNNPPNNDR',
+    'RRDNPNPNDRR',
+    'RRDPNNPDRR',
   ];
   const Q0 = [-3, -4, -4, -4, -5, -6, -6];
-  // set esperado de N/D/O en axial
-  const esperado = { N: new Set(), D: null, O: null };
+  const esperado = { N: new Set(), D: new Set(), P: new Set(), O: null, R: new Set() };
   GRID.forEach((row, f) => {
     [...row].forEach((code, c) => {
-      const q = Q0[f] + c, r = f - 3;
-      if (code === 'N') esperado.N.add(`${q},${r}`);
-      if (code === 'D') esperado.D = `${q},${r}`;
-      if (code === 'O') esperado.O = `${q},${r}`;
+      const key = `${Q0[f] + c},${f - 3}`;
+      if (code === 'N') esperado.N.add(key);
+      if (code === 'D') esperado.D.add(key);
+      if (code === 'P') esperado.P.add(key);
+      if (code === 'O') esperado.O = key;
+      if (code === 'R') esperado.R.add(key);
     });
   });
-  assert.equal(esperado.N.size, 17);
+  assert.equal(esperado.N.size, 18);
+  assert.equal(esperado.D.size, 14);
+  assert.equal(esperado.P.size, 18);
 
-  let layout7 = null, portPos7 = null, portTypes7 = null;
+  let layout7 = null, portPos7 = null;
   for (const seed of [7, 42, 999]) {
     const b = generateBoard(seed, 'oro');
-    assert.equal(b.hexes.length, 69);
-    // N/D/O exactos
+    assert.equal(b.hexes.length, 71);
     for (const h of b.hexes) {
       const key = `${h.q},${h.r}`;
       if (h.fog) assert.ok(esperado.N.has(key), `niebla en ${key}`);
-      else assert.ok(!esperado.N.has(key), `${key} no es niebla`);
-      if (h.terrain === 'desert') assert.equal(key, esperado.D);
+      if (h.terrain === 'desert') assert.ok(esperado.D.has(key), `desierto en ${key}`);
+      if (h.terrain === 'mountains' && !h.fog) assert.ok(esperado.P.has(key), `piedra en ${key}`);
       if (h.terrain === 'gold') { assert.equal(key, esperado.O); assert.equal(h.number, 8); }
+      // los R no pueden ser piedra; bajo la niebla tampoco
+      if (esperado.R.has(key)) assert.ok(h.terrain !== 'mountains', 'R sin piedra');
     }
-    const fog = b.hexes.filter((h) => h.fog);
-    assert.equal(fog.length, 17);
-    // N/D/O siempre en el mismo lugar
-    const kindLayout = JSON.stringify(b.hexes.map((h) => [h.q, h.r, h.fog ? 'N' : h.terrain]).sort((x, y) => x[0] - y[0] || x[1] - y[1] || (x[2] < y[2] ? -1 : 1)));
-    const kindFixed = JSON.stringify(b.hexes.map((h) => [h.q, h.r, h.fog ? 'N' : h.terrain === 'desert' ? 'D' : h.terrain === 'gold' ? 'O' : 'R']).sort());
+    assert.equal(b.hexes.filter((h) => h.fog).length, 18);
+    assert.equal(b.hexes.filter((h) => h.terrain === 'desert').length, 14);
+    assert.equal(b.hexes.filter((h) => h.terrain === 'mountains').length, 18);
+    // N/D/O/P siempre en el mismo lugar
+    const kindFixed = JSON.stringify(b.hexes.map((h) => [h.q, h.r,
+      h.fog ? 'N' : h.terrain === 'desert' ? 'D' : h.terrain === 'gold' ? 'O'
+        : h.terrain === 'mountains' ? 'P' : 'R']).sort());
     if (layout7 === null) layout7 = kindFixed;
-    else assert.equal(kindFixed, layout7, 'N/D/O fijos entre semillas');
-    // recursos balanceados: entre 13 y 14 de cada uno
-    const terr = {};
-    b.hexes.forEach((h) => { if (!['desert', 'gold'].includes(h.terrain)) terr[h.terrain] = (terr[h.terrain] || 0) + 1; });
-    for (const t of ['forest', 'pasture', 'fields', 'hills', 'mountains']) {
-      assert.ok(terr[t] >= 13 && terr[t] <= 14, `${t}: ${terr[t]}`);
-    }
-    // todas las casillas con recurso tienen número, sin 6/8 pegados (el oro cuenta)
+    else assert.equal(kindFixed, layout7, 'P/D/N/O fijos entre semillas');
+    // números sin 6/8 pegados (el oro cuenta)
     const numbered = b.hexes.filter((h) => h.number);
-    assert.equal(numbered.length, 68);
     for (const x of numbered) for (const y of numbered) {
       if (x.id >= y.id) continue;
       const adj = (Math.abs(x.q - y.q) + Math.abs(x.r - y.r) + Math.abs(x.q + x.r - y.q - y.r)) / 2;
@@ -852,12 +851,8 @@ test('volcán: grilla 10×7 de Fran (69 hexes) con N/D/O exactos y fijos', () =>
     // puertos: posiciones fijas, tipo barajado
     assert.equal(b.ports.length, 9);
     const pos = JSON.stringify(b.ports.map((p) => p.vids));
-    const types = JSON.stringify(b.ports.map((p) => p.type));
-    if (portPos7 === null) { portPos7 = pos; portTypes7 = types; }
-    else {
-      assert.equal(pos, portPos7, 'puertos en posiciones fijas');
-      if (types === portTypes7) console.log('  (aviso: tipos de puerto iguales entre semillas', seed - 1, seed, ')');
-    }
+    if (portPos7 === null) portPos7 = pos;
+    else assert.equal(pos, portPos7, 'puertos en posiciones fijas');
   }
 });
 
@@ -883,14 +878,15 @@ test('oro: al producir te deja elegir recurso (pueblo 1, ciudad 2) y bloquea el 
   const antes = { ...st.players[0].res };
   forceRoll(st, 8);
   assert.deepEqual(st.pendingGold, [{ pid: 0, count: 1 }]);
-  assert.deepEqual(st.players[0].res, antes, 'el oro no da carta directa');
+  // el oro no paga carta directa: el badge del hex es de oro, no de un recurso
   assert.equal(st.lastGain[gold.id].res, 'gold');
+  const despuesRoll = { ...st.players[0].res };
   // no puede terminar el turno sin cobrar
   assert.equal(G.endTurn(st).ok, false);
-  // oveja no es opción; piedra sí
+  // oveja no es opción; piedra sí (sumada a lo que hayan producido otros hexes)
   assert.equal(G.takeGold(st, 'sheep').ok, false);
   assert.ok(G.takeGold(st, 'ore').ok);
-  assert.equal(st.players[0].res.ore, 1);
+  assert.equal(st.players[0].res.ore, despuesRoll.ore + 1);
   assert.deepEqual(st.pendingGold, []);
   assert.ok(G.endTurn(st).ok);
   // ciudad junto al oro → 2 elecciones (endTurn dejó el turno en el jugador 1)

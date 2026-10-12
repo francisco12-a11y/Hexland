@@ -346,34 +346,35 @@ export function generateFogBoard(seed) {
   return { hexes, vertices, edges, ports, coast, robber, seed, map: 'niebla' };
 }
 
-// ---------- mapa volcán: rectángulo 10×7 (69 hexes) con niebla y oro ----------
+// ---------- mapa volcán: rombo de 71 hexes con piedra fija, niebla y oro ----------
 
-// Grilla FIJA de Fran (69 casillas: 3 filas de 10, la del oro de 9, 3 de 10):
-//  - N = niebla siempre (16): esconden recurso al azar, se revelan con caminos
-//  - D = desierto siempre (1, arriba al centro); ladrón arranca ahí
-//  - O = oro siempre (1, centro exacto, ficha 8 fija)
-//  - R = recurso aleatorio (51): bosque/pasto/campo/colina/montaña balanceados
+// Grilla FIJA de Fran (71 casillas, filas de 10/11/10/9/10/11/10):
+//  - P = piedra fija (18): el anillo alrededor del oro + manchas
+//  - D = desierto fijo (14): las puntas del rombo, ahí arranca el ladrón
+//  - N = niebla fija (18): esconden recurso variable SIN piedra, se revelan
+//    con caminos (+1 de recompensa) y bloquean poblados hasta descubrirse
+//  - O = oro (1, centro exacto, ficha 8 fija): elegir madera/trigo/ladrillo/piedra
+//  - R = recurso variable (20): bosque/pasto/campo/ladrillo — SIN piedra
 // Los puertos mantienen posiciones fijas; solo se baraja lo que canjean.
 const VOLCAN_GRID = [
-  'RRRDNNRNRR',
-  'RRNNRNRNRR',
-  'RRNRRRRRRR',
-  'RRRNONRNR',
-  'RRRNRNRRRR',
-  'RRRNRNRRRR',
-  'RRRNRNRRRR',
+  'RRDPNNPDRR',
+  'RRDNPNPNDRR',
+  'RDNNPPNNDR',
+  'DPPPOPPPD',
+  'RDNNPPNNDR',
+  'RRDNPNPNDRR',
+  'RRDPNNPDRR',
 ];
-const VOLCAN_Q0 = [-3, -4, -4, -4, -5, -6, -6]; // centrado por fila (la de 9, al medio)
-// reparto balanceado de recursos para las 67 casillas con recurso (51 R + 16 N)
-const VOLCAN_DECK = [
-  ...Array(14).fill('forest'),
-  ...Array(13).fill('pasture'),
-  ...Array(13).fill('fields'),
-  ...Array(13).fill('hills'),
-  ...Array(14).fill('mountains'),
-]; // 67 = 50 R + 17 N
-// 68 fichas con solo 8 rojas (4 seises + 4 ochos): con más no se puede cumplir
-// la regla de no 6/8 pegados en una grilla tan llena
+// reparto balanceado para las 38 casillas de recurso variable (20 R + 18 N),
+// siempre los 4 que no son piedra
+const VOLCAN_VAR_DECK = [
+  ...Array(10).fill('forest'),
+  ...Array(10).fill('pasture'),
+  ...Array(9).fill('fields'),
+  ...Array(9).fill('hills'),
+];
+// 56 fichas para los hexes numerados que no son oro (solo 8 rojas: con más
+// no se puede cumplir la regla de no 6/8 pegados en una grilla tan llena)
 const VOLCAN_NUMBERS = [
   ...TOKENS, ...TOKENS,
   ...Array(4).fill(2), ...Array(4).fill(3), ...Array(4).fill(4), ...Array(4).fill(5),
@@ -385,21 +386,23 @@ export function generateOroBoard(seed) {
   const cells = [];
   VOLCAN_GRID.forEach((row, f) => {
     const r = f - 3;
-    const q0 = VOLCAN_Q0[f];
+    const q0 = -Math.round((row.length - 1) / 2 + r / 2); // centra cada fila
     [...row].forEach((code, c) => {
       const q = q0 + c;
       if (code === 'D') cells.push({ q, r, kind: 'desert', terrain: 'desert', number: 0 });
+      else if (code === 'P') cells.push({ q, r, kind: 'land', terrain: 'mountains', number: 0 });
       else if (code === 'O') cells.push({ q, r, kind: 'gold', terrain: 'gold', number: 8 });
       else if (code === 'N') cells.push({ q, r, kind: 'fog', terrain: 'fog', fog: true, number: 0 });
-      else cells.push({ q, r, kind: 'land', terrain: 'land', number: 0 });
+      else cells.push({ q, r, kind: 'var', terrain: 'var', number: 0 });
     });
   });
 
-  // recursos aleatorios: reparto balanceado sobre R + N (la niebla esconde uno)
-  const conRecurso = cells.filter((c) => c.kind === 'land' || c.kind === 'fog');
-  shuffle([...VOLCAN_DECK], rng).forEach((t, i) => { conRecurso[i].terrain = t; });
+  // recursos variables: reparto balanceado sobre R + N (la niebla esconde uno,
+  // nunca piedra: la piedra es exclusiva de las P fijas)
+  const variables = cells.filter((c) => c.kind === 'var' || c.kind === 'fog');
+  shuffle([...VOLCAN_VAR_DECK], rng).forEach((t, i) => { variables[i].terrain = t; });
 
-  // números para las 67 casillas con recurso, sin 6/8 pegados (el 8 del oro cuenta)
+  // números para las 70 casillas que no son desierto, sin 6/8 pegados (el 8 del oro cuenta)
   const numeradas = cells.filter((c) => c.kind !== 'desert');
   for (let attempt = 0; attempt < 800; attempt++) {
     const cand = shuffle([...VOLCAN_NUMBERS], rng);
@@ -464,7 +467,7 @@ export function generateOroBoard(seed) {
     vertices[e.b].neighbors.push(e.a);
   }
 
-  // costa exterior (el desierto es tierra: el ciclo rodea el rectángulo)
+  // costa exterior
   const perim = edges.filter((e) => e.hexes.length === 1);
   const atVertex = new Map();
   for (const e of perim) {
@@ -513,7 +516,7 @@ export function generateOroBoard(seed) {
     };
   });
 
-  // el ladrón arranca en el desierto solitario
+  // el ladrón arranca en el primer desierto (determinístico)
   const desert = hexes.find((h) => h.terrain === 'desert');
 
   return { hexes, vertices, edges, ports, coast, robber: desert.id, seed, map: 'oro' };
