@@ -23,6 +23,18 @@ const session = {
 let lobbyTab = 'local';
 let mapPick = 'clasico';
 let vpTarget = 10;
+let tradeMode = null; // {giveSel:Set(indices de mano), get:{res:n}} — oferta en el footer
+const expandHand = (p) => {
+  const hand = [];
+  for (const r of G.RESOURCES) for (let i = 0; i < p.res[r]; i++) hand.push(r);
+  return hand;
+};
+const giveFromSel = (p, giveSel) => {
+  const hand = expandHand(p);
+  const give = {};
+  giveSel.forEach((i) => { give[hand[i]] = (give[hand[i]] || 0) + 1; });
+  return give;
+};
 const pendingActs = new Map(); // rid → resolve (client waiting host result)
 const passedTrades = new Set(); // ids de ofertas abiertas que ya dejé pasar
 let ridSeq = 1;
@@ -399,11 +411,14 @@ function targetsForMode() {
   return t;
 }
 
+function exitTradeMode() { tradeMode = null; renderAll(); }
+
 function renderAll() {
   if (!game) return;
   // el modo de colocación no sobrevive al setup (quedaba residual y el prompt
   // decía "elegí un lugar libre" en el primer turno principal)
   if (mode?.setup && game.phase !== 'setup') mode = null;
+  if (tradeMode && (game.phase !== 'main' || !myTurn())) tradeMode = null;
   renderBoard(svg(), game, targetsForMode(), onPick);
   renderChips();
   renderLog();
@@ -547,6 +562,24 @@ function renderHand() {
   // cartas de desarrollo con su índice original. Ninguna va disabled: si no
   // es jugable, el click explica por qué (el motor sigue siendo la autoridad).
   // Los PV no se juegan nunca: cuentan solos.
+  if (tradeMode) {
+    // modo intercambio: la mano se muestra carta por carta, tocables para ofrecer
+    const hand = expandHand(p);
+    $('#hand').innerHTML = hand.map((r, i) =>
+      `<button class="rescard big handgive ${r} ${tradeMode.giveSel.has(i) ? 'sel-give' : ''}" data-hi="${i}"
+        title="tocá para ofrecer o sacar">${G.RES_EMOJI[r]}</button>`).join('') || '<p class="empty">Sin cartas para ofrecer 🃏</p>';
+    $('#hand').classList.add('giving');
+    $('#hand').querySelectorAll('.handgive').forEach((b) => {
+      b.onclick = () => {
+        const i = Number(b.dataset.hi);
+        if (tradeMode.giveSel.has(i)) tradeMode.giveSel.delete(i);
+        else tradeMode.giveSel.add(i);
+        renderAll();
+      };
+    });
+    return;
+  }
+  $('#hand').classList.remove('giving');
   const canBase = game.phase === 'main' && myTurn() && !game.devPlayed;
   const devHtml = (p.devs || []).map((c, i) => {
     const can = canBase && c.t !== 'vp' && c.turn < game.turn;
@@ -562,6 +595,15 @@ function renderHand() {
     : `<p class="empty">Sin cartas 🃏</p>`;
   $('#hand').querySelectorAll('.devcard').forEach((b) => {
     b.onclick = () => playDevCard(Number(b.dataset.dev), b.dataset.t);
+  });
+  // modo intercambio: cada carta se ofrece/saca individualmente
+  $('#hand').querySelectorAll('.handgive').forEach((b) => {
+    b.onclick = () => {
+      const i = Number(b.dataset.hi);
+      if (tradeMode.giveSel.has(i)) tradeMode.giveSel.delete(i);
+      else tradeMode.giveSel.add(i);
+      renderAll();
+    };
   });
 }
 
@@ -610,6 +652,54 @@ function renderPieceButtons() {
     const dis = (session.online && !myTurn()) || !afford(G.COSTS[kind]) || !has(kind);
     return `<button class="pbtn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" title="${title}" ${dis ? 'disabled' : ''}>${icon}<span class="n">×${left[kind]}</span></button>`;
   };
+  if (tradeMode) {
+    const give = giveFromSel(p, tradeMode.giveSel);
+    const detGive = G.RESOURCES.filter((r) => give[r])
+      .map((r) => `${G.RES_EMOJI[r]}×${give[r]}`).join(' ') || '—';
+    const chips = G.RESOURCES.map((r) => {
+      const n = tradeMode.get[r] || 0;
+      return `<span class="tpchip"><b>${G.RES_EMOJI[r]}</b><span class="tpn">${n}</span>
+        <span class="tpbtns"><button data-r="${r}" data-d="1" ${n >= 9 ? 'disabled' : ''}>+</button>
+        <button data-r="${r}" data-d="-1" ${n === 0 ? 'disabled' : ''}>−</button></span></span>`;
+    }).join('');
+    const totalGive = G.RESOURCES.reduce((a, r) => a + (give[r] || 0), 0);
+    const totalGet = G.RESOURCES.reduce((a, r) => a + (tradeMode.get[r] || 0), 0);
+    box.innerHTML = `
+      <div id="tradepanel">
+        <div class="tp-row">
+          <span class="tp-title">Dás: <b id="tp-give">${detGive}</b> <small>(tocá tu mano)</small></span>
+          <span class="tp-title">Pedís:</span>
+          <span class="tp-chips">${chips}</span>
+        </div>
+        <div class="tp-row tp-actions">
+          <button class="btn" id="tp-cancel">Cancelar</button>
+          <button class="btn primary" id="tp-ok" ${totalGive === 0 || totalGet === 0 ? 'disabled' : ''}>Proponer 🤝</button>
+        </div>
+      </div>`;
+    box.querySelectorAll('.tpbtns button').forEach((b) => {
+      b.onclick = () => {
+        const r = b.dataset.r;
+        tradeMode.get[r] = Math.max(0, (tradeMode.get[r] || 0) + Number(b.dataset.d));
+        renderAll();
+      };
+    });
+    box.querySelector('#tp-cancel').onclick = exitTradeMode;
+    box.querySelector('#tp-ok').onclick = () => {
+      const get = {};
+      for (const r of G.RESOURCES) {
+        if (tradeMode.get[r]) get[r] = tradeMode.get[r];
+      }
+      const done = (r) => {
+        tradeMode = null;
+        if (!r.ok) return flash(r.err);
+        if (session.online) { renderAll(); }
+        else showOfferWaiting();
+      };
+      if (session.online) act('proposeTrade', [give, get]).then(done);
+      else { const r = G.proposeTrade(game, give, get); done(r); }
+    };
+    return;
+  }
   const devLeft = game.devDeck.length;
   const devDis = !myTurn() || !afford(G.COSTS.dev) || devLeft === 0;
   box.innerHTML = `
@@ -628,7 +718,11 @@ function renderPieceButtons() {
     };
   });
   $('#b-trade').onclick = showTradeModal;
-  $('#b-ptrade').onclick = showPlayerTradeModal;
+  $('#b-ptrade').onclick = () => {
+    if (tradeMode) return exitTradeMode();
+    tradeMode = { giveSel: new Set(), get: {} };
+    renderAll();
+  };
   $('#b-dev').onclick = () => {
     if (session.online) return act('buyDev').then((r) => { if (!r.ok) flash(r.err); });
     if (!G.buyDev(game).ok) return;
@@ -890,63 +984,6 @@ function openHandPicker({ pid, title, sub, need = null, min = 1, sameType = fals
   };
 }
 
-function showPlayerTradeModal() {
-  const me = mePlayer();
-  // paso 1: tocá las cartas de tu mano que ofrecés
-  openHandPicker({
-    pid: me.id,
-    title: '🤝 Intercambio — qué das',
-    sub: 'Tocá las cartas que ofrecés. Cualquier jugador puede aceptar la oferta.',
-    need: null, min: 1,
-    confirmText: 'Siguiente',
-    onConfirm: (give) => showGetStep(give),
-  });
-}
-
-// paso 2: qué pedís a cambio (un deseo abstracto: no se ve la mano del otro)
-function showGetStep(give) {
-  const get = {};
-  const m = showModal(`
-    <h2>🤝 Intercambio — qué pedís</h2>
-    <p class="sub">Elegí qué querés a cambio. Si alguien acepta y tiene las cartas, se cierra.</p>
-    <div id="tget"></div>
-    <div class="btnrow">
-      <button class="btn" id="t-cancel">Cerrar</button>
-      <button class="btn primary" id="t-ok">Proponer</button>
-    </div>`);
-  const redraw = () => {
-    const box = m.querySelector('#tget');
-    box.innerHTML = '';
-    let total = 0;
-    for (const r of G.RESOURCES) total += get[r] || 0;
-    for (const r of G.RESOURCES) {
-      const n = get[r] || 0;
-      const row = document.createElement('div');
-      row.className = 'stepper';
-      row.innerHTML = `<span>${G.RES_EMOJI[r]}</span>
-        <span><button data-d="-1" ${n === 0 ? 'disabled' : ''}>−</button>
-        <span class="cnt">${n}</span>
-        <button data-d="1" ${n >= 9 ? 'disabled' : ''}>+</button></span>`;
-      row.querySelectorAll('button').forEach((b) => {
-        b.onclick = () => { get[r] = Math.max(0, (get[r] || 0) + Number(b.dataset.d)); redraw(); };
-      });
-      box.appendChild(row);
-    }
-    m.querySelector('#t-ok').disabled = total === 0;
-  };
-  redraw();
-  m.querySelector('#t-cancel').onclick = hideModal;
-  m.querySelector('#t-ok').onclick = () => {
-    const done = (r) => {
-      if (!r.ok) return flash(r.err);
-      if (session.online) { hideModal(); renderAll(); }
-      else showOfferWaiting();
-    };
-    if (session.online) act('proposeTrade', [give, { ...get }]).then(done);
-    else { const r = G.proposeTrade(game, give, { ...get }); if (!r.ok) return flash(r.err); done(r); }
-  };
-}
-
 function showOfferWaiting() {
   const offer = game.tradeOffer;
   if (!offer) return;
@@ -1166,6 +1203,7 @@ function showReceiveStep(res, rate) {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && mode) { mode = null; renderAll(); }
+  if (e.key === 'Escape' && tradeMode) exitTradeMode();
 });
 
 // the dice panel itself is the roll button

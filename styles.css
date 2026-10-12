@@ -396,3 +396,29 @@ body {
 .pickcard { font-size: 26px; padding: 0; }
 .pickcard.sel { outline: 3px solid var(--accent); transform: translateY(-6px); box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4); }
 .pickcard:disabled { opacity: 0.3; }
+
+/* panel de intercambio entre jugadores (vive donde estaban los botones de pieza) */
+#tradepanel { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+#tradepanel .tp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+#tradepanel .tp-title { font-size: 14px; font-weight: 700; }
+#tradepanel .tp-title small { color: var(--muted); font-weight: 400; }
+#tradepanel .tp-chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+#tradepanel .tpchip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--panel2); border: 1px solid #2a4a7d; border-radius: 10px;
+  padding: 4px 7px; font-size: 15px;
+}
+#tradepanel .tpn { min-width: 14px; text-align: center; font-weight: 800; color: var(--accent); }
+#tradepanel .tpbtns { display: inline-flex; flex-direction: column; gap: 1px; }
+#tradepanel .tpbtns button {
+  background: var(--panel); color: var(--ink); border: 1px solid #2a4a7d;
+  border-radius: 4px; font-size: 10px; line-height: 1; padding: 1px 5px; cursor: pointer;
+}
+#tradepanel .tpbtns button:disabled { opacity: 0.35; cursor: not-allowed; }
+#tradepanel .tp-actions { margin-top: 2px; }
+
+/* mano en modo dar: cartas levantadas cuando están ofrecidas */
+#hand.giving .handgive { cursor: pointer; opacity: 0.55; }
+#hand.giving .handgive.sel-give { opacity: 1; outline: 3px solid var(--accent); transform: translateY(-8px); }
+#hand.giving .handgive:hover { transform: translateY(-4px); }
+#hand.giving .devcard, #hand.giving .rescard:not(.handgive) { display: none; }
