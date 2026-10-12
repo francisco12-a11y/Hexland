@@ -222,17 +222,19 @@ export function renderBoard(svg, st, targets, onPick) {
     el('text', { x, y, 'font-size': 40, opacity: 0.08, 'text-anchor': 'middle' }, svg).textContent = e;
   }
 
-  // island coast: shadow + white foam + sand platform
+  // island coast: shadow + shallow water + scalloped foam + sand platform
   const coastPts = st.board.coast
     .map((vid) => st.board.vertices[vid])
     .map((v) => `${v.x.toFixed(1)},${v.y.toFixed(1)}`)
     .join(' ');
-  el('polygon', { points: coastPts, fill: 'rgba(8,30,55,0.30)', transform: 'translate(0 9)' }, svg);
+  el('polygon', { points: coastPts, fill: 'rgba(8,30,55,0.30)', transform: 'translate(0 10)' }, svg);
+  el('polygon', { points: coastPts, fill: 'none', stroke: '#5aa9dd', 'stroke-width': 100, 'stroke-linejoin': 'round', opacity: 0.6 }, svg);
   el('polygon', {
-    points: coastPts, fill: SAND, stroke: '#eef6ff', 'stroke-width': 56,
-    'stroke-linejoin': 'round', opacity: 0.95,
+    points: coastPts, fill: 'none', stroke: '#e8f4fb', 'stroke-width': 64,
+    'stroke-linejoin': 'round', 'stroke-dasharray': '22 14', 'stroke-linecap': 'round', opacity: 0.95,
   }, svg);
-  el('polygon', { points: coastPts, fill: 'url(#tg-sand)', stroke: '#d9bf8d', 'stroke-width': 2.5, 'stroke-linejoin': 'round' }, svg);
+  el('polygon', { points: coastPts, fill: 'url(#tg-sand)', stroke: '#ffffff', 'stroke-width': 42, 'stroke-linejoin': 'round' }, svg);
+  el('polygon', { points: coastPts, fill: 'none', stroke: '#e0c893', 'stroke-width': 3 }, svg);
 
   // hexes: gradiente + ilustración vectorial, recortados al hex
   const TW = Math.sqrt(3) * S, TH = 2 * S;
@@ -266,12 +268,7 @@ export function renderBoard(svg, st, targets, onPick) {
     for (const hid of st.lastProduced) {
       const h = st.board.hexes[hid];
       el('polygon', {
-        points: hexPoints(h), fill: 'none', stroke: '#1d3557',
-        'stroke-width': 14, 'stroke-linejoin': 'round', class: 'prodflash',
-      }, gP);
-      el('polygon', {
-        points: hexPoints(h), fill: 'none', stroke: '#ffffff',
-        'stroke-width': 8, 'stroke-linejoin': 'round', class: 'prodflash',
+        points: hexPoints(h), fill: '#0d2239', 'stroke-linejoin': 'round', class: 'prodflash',
       }, gP);
     }
   }

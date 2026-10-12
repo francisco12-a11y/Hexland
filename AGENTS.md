@@ -70,13 +70,34 @@ Debug/test hook: `window.__hexland = { game, G, refresh, setMode, mode }`.
 - `state.lastProduced` = ALL hex ids matching the last roll (border flash),
   `state.lastGain` = `{hexId: {n, res}}` (the "+N 🌾" badges and the per-player
   `📦 … recibió …` log lines). Reset on every roll.
-- `WIN_VP = 8` on purpose: buildings alone cap at 9 PV (1 settlement + 4
-  cities). Raise to 10 only when dev cards + longest road + largest army exist.
+- `WIN_VP = 10` (standard). Buildings alone cap at 9 PV; dev-card VPs, longest
+  road and largest army supply the rest.
 - Settlement placement: the vertex itself must touch one of the player's roads
   (be an endpoint), not merely be adjacent to the network. After setup there
   are no valid spots until a road is extended (road endpoints hug the player's
   own settlements, blocked by the distance rule) — that is correct, don't
   "fix" it.
+
+## Development cards & bonus points
+
+- Deck of 25 (`DEV_DECK` in game.js): 14 knight, 5 VP, 2 road building,
+  2 year of plenty, 2 monopoly. Shuffled into `st.devDeck` at `newGame` with
+  the seeded rng. Cost 1 sheep + 1 wheat + 1 ore (`COSTS.dev`).
+- Each card stores `{t, turn}` — `turn` is the purchase turn; a card cannot be
+  played the same turn it was bought (`consumeDev`), and only one dev card per
+  turn (`st.devPlayed`, reset by `endTurn`). VP cards are never "played": they
+  count silently in `vp()`.
+- `st.freeRoads` drives road building (2 free roads). The UI derives free-road
+  targets from STATE (not local mode), so it works in online rooms too.
+- `longestRoadLen(st, pid)` = DFS with backtracking over the player's own
+  edges; enemy buildings block passage through a vertex. `refreshLongestRoad`
+  runs after every road or settlement placement: holder keeps ties, 5+ edges
+  to take it, losing it when cut or beaten.
+- Largest army: `p.knights` counts played knights; 3+ takes it, only a
+  strictly higher count steals it, ties keep the holder (`updateLargestArmy`).
+- `p.hasLongestRoad` / `p.hasLargestArmy` live ON the player so `vp(p)` stays
+  a pure player function; `st.longestRoad` / `st.largestArmy` keep the holder
+  pid for the log/tie logic. Chips show 🛣️/⚔️ badges.
 
 ## Testing
 

@@ -152,14 +152,37 @@ body {
 .rescard.wheat { background: #d9a927; }
 .rescard.ore { background: #74787e; }
 
+/* cartas de desarrollo (mano) */
+.devcard {
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 54px; height: 70px; border-radius: 9px; padding: 0; gap: 3px;
+  background: linear-gradient(160deg, #35406b, #222b4c);
+  border: 2px solid #4a5688; color: var(--ink);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+  cursor: default;
+}
+.devcard .dico { font-size: 21px; line-height: 1; }
+.devcard small { font-size: 9.5px; font-weight: 700; color: #b9c4e2; letter-spacing: 0.2px; }
+.devcard[data-t="vp"] { background: linear-gradient(160deg, #6b5a23, #473c15); border-color: #a98f3c; }
+.devcard.canplay {
+  border-color: var(--accent); cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(244, 201, 93, 0.4), 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+.devcard.canplay:hover { filter: brightness(1.15); }
+.devcard:disabled { filter: none; }
+
+/* insignias de bonus en los chips de puntaje */
+.chip .bdg { font-size: 12px; line-height: 1; }
+
 /* barra inferior */
 #bottombar {
   grid-area: bottom;
   display: flex; align-items: flex-end; gap: 12px;
   padding: 8px 12px 10px;
 }
-#hand { display: flex; gap: 6px; align-items: flex-end; min-height: 70px; }
-#hand .rescard { border-color: rgba(255, 255, 255, 0.85); }
+#hand { display: flex; gap: 6px; align-items: flex-end; min-height: 70px; overflow-x: auto; max-width: min(46vw, 620px); padding-bottom: 2px; }
+#hand .rescard { border-color: rgba(255, 255, 255, 0.85); flex-shrink: 0; }
+#hand .devcard { flex-shrink: 0; }
 
 #centerbar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
 #prompt {
@@ -242,10 +265,10 @@ body {
   0%, 100% { opacity: 0.45; }
   50% { opacity: 1; }
 }
-.prodflash { animation: prodflash 1s linear infinite; }
-@keyframes prodflash {
-  0% { opacity: 1; }
-  60% { opacity: 0.85; }
+.prodflash { opacity: 0; animation: hexblink 0.7s ease-in-out 3; }
+@keyframes hexblink {
+  0% { opacity: 0; }
+  45% { opacity: 0.22; }
   100% { opacity: 0; }
 }
 
@@ -353,6 +376,10 @@ body {
   #hand { grid-column: 2; grid-row: 2; justify-self: end; order: initial; overflow-x: auto; max-width: 46vw; padding-bottom: 2px; }
   #hand .empty { max-width: 40vw; text-align: right; }
   .rescard.big { width: 42px; height: 56px; font-size: 17px; }
+  .devcard { width: 42px; height: 56px; }
+  .devcard .dico { font-size: 16px; }
+  .devcard small { font-size: 7.5px; }
+  .chip .bdg { font-size: 10px; }
   #diceres { padding: 5px 9px; gap: 6px; border-radius: 12px; }
   #diceres .die svg { width: 27px; height: 27px; }
   #diceres .sum { font-size: 19px; }

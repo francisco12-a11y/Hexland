@@ -558,7 +558,8 @@ function renderPieceButtons() {
     return false;
   };
   const btn = (kind, icon, title) => {
-    const dis = (!session.online || !myTurn() ? true : !afford(G.COSTS[kind]) || !has(kind));
+    // disabled si no es tu turno (solo online), no te alcanza o no hay lugar
+    const dis = (session.online && !myTurn()) || !afford(G.COSTS[kind]) || !has(kind);
     return `<button class="pbtn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" title="${title}" ${dis ? 'disabled' : ''}>${icon}<span class="n">×${left[kind]}</span></button>`;
   };
   const devLeft = game.devDeck.length;
