@@ -199,9 +199,9 @@ function hexPoints(h) {
  */
 export function renderBoard(svg, st, targets, onPick) {
   svg.innerHTML = '';
-  // el mapa niebla es más grande: viewBox a medida; el clásico queda fijo
+  // los mapas no clásicos son más grandes: viewBox a medida; Base queda fijo
   let VB = { x: -400, y: -360, w: 800, h: 720 };
-  if (st.board.map === 'niebla') {
+  if (st.board.map && st.board.map !== 'clasico') {
     let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
     for (const h of st.board.hexes) {
       minX = Math.min(minX, h.x); maxX = Math.max(maxX, h.x);

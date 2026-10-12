@@ -386,7 +386,8 @@ function renderAll() {
   renderPieceButtons();
   renderPrompt();
   updateDice();
-  const mapLbl = game.map === 'niebla' ? ' · 🌫️ niebla' : '';
+  const MAP_LABELS = { niebla: '🌫️ bosque oscuro', oro: '🪙 volcán' };
+  const mapLbl = MAP_LABELS[game.map] ? ` · ${MAP_LABELS[game.map]}` : '';
   $('#seedchip').textContent = `⬡${mapLbl} · semilla ${game.seed} · turno ${game.turn}`;
 }
 

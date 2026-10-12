@@ -792,34 +792,37 @@ test('niebla: recompensa de descubrimiento — quien revela se lleva 1 recurso d
 
 // ---------- mapa oro ----------
 
-test('oro: estructura fija (desierto afuera, piedra adentro, oro al centro con 8)', () => {
+test('volcán: rectángulo 10×7 fijo (desierto en el borde, piedra al centro, oro con 8)', () => {
+  const layout = (bd) => bd.hexes.map((h) => [h.q, h.r, h.terrain]).sort();
+  let layout7 = null;
   for (const seed of [7, 42, 999]) {
     const b = generateBoard(seed, 'oro');
-    assert.equal(b.hexes.length, 37);
+    // 10 columnas × 7 filas = 70 hexes
+    assert.equal(b.hexes.length, 70);
+    assert.equal(new Set(b.hexes.map((h) => `${h.q},${h.r}`)).size, 70);
     const terr = {};
     b.hexes.forEach((h) => { terr[h.terrain] = (terr[h.terrain] || 0) + 1; });
-    assert.equal(terr.desert, 18);
-    assert.equal(terr.mountains, 9);
-    assert.equal(terr.forest, 3);
-    assert.equal(terr.pasture, 3);
-    assert.equal(terr.hills, 3);
-    // oro fijo en el centro con su 8
+    assert.equal(terr.desert, 30);
+    assert.equal(terr.mountains, 25);
+    assert.equal(terr.forest, 6);
+    assert.equal(terr.pasture, 4);
+    assert.equal(terr.hills, 4);
+    // oro fijo en el centro exacto con su 8
     const gold = b.hexes.find((h) => h.terrain === 'gold');
     assert.equal(gold.number, 8);
     assert.equal(gold.q, 0); assert.equal(gold.r, 0);
-    // los desiertos no tienen número y son el anillo externo (todos a distancia 3)
+    // el desierto es TODO el borde: filas de los extremos o primeras/últimas columnas
     for (const h of b.hexes) {
       if (h.terrain !== 'desert') continue;
-      const d = (Math.abs(h.q) + Math.abs(h.r) + Math.abs(h.q + h.r)) / 2;
-      assert.equal(d, 3);
+      const fila = Math.abs(h.r) === 3
+        || h.q === -Math.round(4.5 + h.r / 2)
+        || h.q === -Math.round(4.5 + h.r / 2) + 9;
+      assert.ok(fila, 'desierto fuera del borde');
       assert.equal(h.number, 0);
     }
-    // layout de anillos fijo entre semillas
-    const layout = (bd) => bd.hexes.map((h) => [h.q, h.r, h.terrain]);
-    if (seed === 7) { /* primera pasada */ } else {
-      const a = generateBoard(7, 'oro');
-      assert.deepEqual(layout(a), layout(b), 'piedra/desierto/oro siempre en el mismo lugar');
-    }
+    // piedra/desierto/oro siempre en el mismo lugar
+    if (layout7 === null) layout7 = JSON.stringify(layout(b));
+    else assert.equal(JSON.stringify(layout(b)), layout7, 'layout fijo entre semillas');
     // números sin 6/8 pegados (contando el 8 del oro)
     const numbered = b.hexes.filter((h) => h.number);
     for (const x of numbered) for (const y of numbered) {
@@ -828,7 +831,6 @@ test('oro: estructura fija (desierto afuera, piedra adentro, oro al centro con 8
       assert.ok(!(adj === 1 && [6, 8].includes(x.number) && [6, 8].includes(y.number)), '6/8 pegados');
     }
     assert.equal(b.ports.length, 9);
-    assert.equal(b.coast.length, 42);
   }
 });
 
