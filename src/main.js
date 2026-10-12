@@ -22,7 +22,9 @@ const session = {
 };
 let lobbyTab = 'local';
 let mapPick = 'clasico';
+let vpTarget = 10;
 const pendingActs = new Map(); // rid → resolve (client waiting host result)
+const passedTrades = new Set(); // ids de ofertas abiertas que ya dejé pasar
 let ridSeq = 1;
 
 const $ = (s) => document.querySelector(s);
@@ -57,6 +59,15 @@ function buildLobby() {
     b.classList.toggle('on', b.dataset.map === mapPick);
     b.onclick = () => { mapPick = b.dataset.map; buildLobby(); };
   });
+  const vpRange = $('#vp-range');
+  if (vpRange) {
+    vpRange.value = vpTarget;
+    $('#vp-label').textContent = `${vpTarget} PV`;
+    vpRange.oninput = () => {
+      vpTarget = Number(vpRange.value);
+      $('#vp-label').textContent = `${vpTarget} PV`;
+    };
+  }
   if (lobbyTab === 'online') return; // el panel online es HTML estático
 
   const seg = $('#countseg');
@@ -102,7 +113,7 @@ function startGame() {
   const names = [...$('#names').querySelectorAll('input')].map((i) => i.value.trim());
   const seedRaw = $('#seed').value.trim();
   const seed = seedRaw ? Math.abs(parseInt(seedRaw, 10)) || 1 : undefined;
-  game = G.newGame(names, seed, colorPick.slice(), mapPick);
+  game = G.newGame(names, seed, colorPick.slice(), mapPick, vpTarget);
   mode = { kind: 'settlement', setup: true };
   shownDice = null;
   lastDiceKey = null;
@@ -260,6 +271,9 @@ const HOST_ACTIONS = {
   playYearOfPlenty: (st, a) => G.playYearOfPlenty(st, a[0], a[1], a[2]),
   playMonopoly: (st, a) => G.playMonopoly(st, a[0], a[1]),
   takeGold: (st, a) => G.takeGold(st, a[0]),
+  proposeTrade: (st, a) => G.proposeTrade(st, a[0], a[1]),
+  respondTrade: (st, a) => G.respondTrade(st, a[0], a[1]),
+  cancelTrade: (st) => G.cancelTrade(st),
   endTurn: (st) => G.endTurn(st),
 };
 
@@ -271,9 +285,18 @@ function hostApply(kind, args, byPid) {
     ? game.pendingDiscards[0]
     : kind === 'takeGold'
       ? game.pendingGold[0]?.pid
-      : game.phase === 'setup'
-      ? game.setupQueue[game.setupIdx]
-      : game.current;
+      : kind === 'respondTrade'
+        ? game.tradeOffer?.from // cualquier jugador distinto del oferente puede aceptar
+        : kind === 'cancelTrade'
+          ? game.tradeOffer?.from
+          : game.phase === 'setup'
+          ? game.setupQueue[game.setupIdx]
+          : game.current;
+  if (kind === 'respondTrade') {
+    if (!game.tradeOffer) return { ok: false, err: 'No hay oferta pendiente' };
+    if (byPid === game.tradeOffer.from) return { ok: false, err: 'No podés aceptar tu propia oferta' };
+    return fn(game, [...args, byPid]);
+  }
   if (owner !== byPid) return { ok: false, err: 'No es tu turno' };
   return fn(game, args);
 }
@@ -304,6 +327,10 @@ function onlineUiFromState() {
   const modalOpen = !!$('#overlay .modal');
   if (game.phase === 'discard' && game.pendingDiscards[0] === session.myId && !modalOpen) discardChain();
   if (game.pendingGold?.length && game.pendingGold[0].pid === session.myId && !modalOpen) goldChain();
+  if (game.tradeOffer && !modalOpen) {
+    if (game.tradeOffer.from === session.myId) showOfferWaiting();
+    else if (!passedTrades.has(game.tradeOffer.id)) showOfferModal(session.myId);
+  }
   if (game.stealCandidates?.length && game.current === session.myId && !modalOpen) showStealModal(game.stealCandidates);
   if (game.phase === 'over' && !modalOpen) showWin();
 }
@@ -333,7 +360,7 @@ function afterHostApply() {
 function startOnlineGame() {
   const names = session.lobby.map((l) => l.name);
   const seed = Math.floor(Math.random() * 2 ** 31);
-  game = G.newGame(names, seed, null, mapPick);
+  game = G.newGame(names, seed, null, mapPick, vpTarget);
   session.myId = 0;
   session.started = true;
   mode = { kind: 'settlement', setup: true };
@@ -587,6 +614,7 @@ function renderPieceButtons() {
   const devDis = !myTurn() || !afford(G.COSTS.dev) || devLeft === 0;
   box.innerHTML = `
     <button class="pbtn" id="b-trade" title="Comerciar con el banco" ${!myTurn() ? 'disabled' : ''}>🔄</button>
+    <button class="pbtn" id="b-ptrade" title="Proponer intercambio a los demás" ${!myTurn() ? 'disabled' : ''}>🤝</button>
     ${btn('road', '🛣️', 'Construir camino — 1🧱 1🌲')}
     ${btn('settlement', '🏠', 'Fundar asentamiento — 1🧱 1🌲 1🐑 1🌾')}
     ${btn('city', '🏛️', 'Fundar ciudad — 3⛰️ 2🌾')}
@@ -600,6 +628,7 @@ function renderPieceButtons() {
     };
   });
   $('#b-trade').onclick = showTradeModal;
+  $('#b-ptrade').onclick = showPlayerTradeModal;
   $('#b-dev').onclick = () => {
     if (session.online) return act('buyDev').then((r) => { if (!r.ok) flash(r.err); });
     if (!G.buyDev(game).ok) return;
@@ -635,7 +664,9 @@ function renderPrompt() {
   } else if (game.phase === 'roll') {
     msg = waiting ? `⏳ ${p.name} está por tirar…` : `🎲 ${session.online ? 'Tocá el panel de dados' : p.name + ': tirá los dados'}`;
   } else if (game.phase === 'main') {
-    if (game.pendingGold?.length) {
+    if (game.tradeOffer) {
+      msg = `🤝 ${game.players[game.tradeOffer.from].name} ofrece un intercambio: ¿alguien acepta?`;
+    } else if (game.pendingGold?.length) {
       const gp = game.players[game.pendingGold[0].pid];
       msg = `🪙 ${gp.name}: elegí tu recurso del oro`;
     } else if (game.freeRoads > 0 && !waiting) {
@@ -788,52 +819,185 @@ function showWin() {
 function discardChain() {
   const pid = game.pendingDiscards[0];
   if (pid == null) { renderAll(); return; }
+  const need = G.requiredDiscard(game.players[pid]);
+  openHandPicker({
+    pid,
+    title: '🃏 Descarte',
+    sub: `<b>${game.players[pid].name}</b>: tocá las ${need} cartas para descartar.`,
+    need,
+    confirmText: 'Descartar',
+    onConfirm: (sel) => {
+      const commit = () => {
+        if (game.pendingDiscards.length) discardChain();
+        else renderAll();
+      };
+      if (session.online) act('discard', [pid, sel]).then((r) => { if (r.ok) commit(); else flash(r.err); });
+      else { const r = G.discard(game, pid, sel); if (r.ok) commit(); else flash(r.err); }
+    },
+  });
+}
+
+// selector de cartas de la mano: muestra la mano como cartas tocables
+// need = cantidad exacta (null = mínimo `min`), sameType = todas iguales,
+// maxPerRes = tope por recurso (para aceptar ofertas pidiendo X de cada una)
+function openHandPicker({ pid, title, sub, need = null, min = 1, sameType = false, maxPerRes = null, confirmText = 'Confirmar', onConfirm }) {
   const p = game.players[pid];
-  const need = G.requiredDiscard(p);
-  const sel = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
+  const hand = [];
+  for (const r of G.RESOURCES) for (let i = 0; i < p.res[r]; i++) hand.push(r);
+  const sel = [];
   const m = showModal(`
-    <h2>🃏 Descarte</h2>
-    <p class="sub"><b>${p.name}</b> tiene ${G.RESOURCES.reduce((s, r) => s + p.res[r], 0)} cartas y debe descartar <b>${need}</b>.</p>
-    <div id="steps"></div>
-    <div class="btnrow"><button class="btn primary" id="m-conf" disabled>Descartar</button></div>`);
-  const steps = m.querySelector('#steps');
+    <h2>${title}</h2>
+    ${sub ? `<p class="sub">${sub}</p>` : ''}
+    <div class="handpick" id="hp"></div>
+    <p id="hp-cnt" style="color:#ffd166;min-height:18px;font-size:13px;margin:8px 0 0"></p>
+    <div class="btnrow"><button class="btn primary" id="hp-ok" disabled>${confirmText}</button></div>`);
+  const countRes = (r) => sel.filter((i) => hand[i] === r).length;
   const redraw = () => {
-    steps.innerHTML = '';
-    const total = G.RESOURCES.reduce((s, r) => s + sel[r], 0);
-    for (const r of G.RESOURCES) {
-      const row = document.createElement('div');
-      row.className = 'stepper';
-      row.innerHTML = `<span>${G.RES_EMOJI[r]} ${resName(r)} <small style="color:var(--muted)">(tenés ${p.res[r]})</small></span>
-        <span><button data-r="${r}" data-d="-1" ${sel[r] === 0 ? 'disabled' : ''}>−</button>
-        <span class="cnt">${sel[r]}</span>
-        <button data-r="${r}" data-d="1" ${sel[r] >= p.res[r] || total >= need ? 'disabled' : ''}>+</button></span>`;
-      steps.appendChild(row);
-    }
-    steps.querySelectorAll('button').forEach((b) => {
+    const box = m.querySelector('#hp');
+    box.innerHTML = '';
+    hand.forEach((r, i) => {
+      const idx = sel.indexOf(i);
+      const b = document.createElement('button');
+      b.className = `pickcard rescard ${r}` + (idx !== -1 ? ' sel' : '');
+      b.textContent = G.RES_EMOJI[r];
+      const capOk = !maxPerRes || countRes(r) < (maxPerRes[r] || 0);
+      const typeOk = !sameType || sel.length === 0 || hand[sel[0]] === r;
+      const full = need != null && sel.length >= need;
+      b.disabled = idx === -1 && (!capOk || !typeOk || full);
       b.onclick = () => {
-        sel[b.dataset.r] += Number(b.dataset.d);
-        m.querySelector('#m-conf').disabled = G.RESOURCES.reduce((s, r) => s + sel[r], 0) !== need;
+        if (idx !== -1) { sel.splice(idx, 1); redraw(); return; }
+        // re-validar en el click (no confiar en el disabled del render anterior)
+        const capOk = !maxPerRes || countRes(r) < (maxPerRes[r] || 0);
+        const typeOk = !sameType || sel.length === 0 || hand[sel[0]] === r;
+        const full = need != null && sel.length >= need;
+        if (!capOk || !typeOk || full) return;
+        sel.push(i);
         redraw();
       };
+      box.appendChild(b);
     });
+    m.querySelector('#hp-cnt').textContent = need != null
+      ? `Elegidas: ${sel.length} / ${need}`
+      : `Elegidas: ${sel.length} (mínimo ${min})`;
+    m.querySelector('#hp-ok').disabled = need != null ? sel.length !== need : sel.length < min;
   };
   redraw();
-  m.querySelector('#m-conf').onclick = () => {
-    const commit = () => {
-      hideModal();
-      if (!session.online) {
-        if (game.pendingDiscards.length) discardChain();
-        else renderAll(); // phase is now 'robber'
-      }
-    };
-    if (session.online) {
-      act('discard', [pid, { ...sel }]).then((r) => { if (r.ok) commit(); else flash(r.err); });
-    } else {
-      const r = G.discard(game, pid, { ...sel });
-      if (!r.ok) return;
-      commit();
-    }
+  m.querySelector('#hp-ok').onclick = () => {
+    const out = {};
+    for (const i of sel) out[hand[i]] = (out[hand[i]] || 0) + 1;
+    hideModal();
+    onConfirm(out);
   };
+}
+
+function showPlayerTradeModal() {
+  const me = mePlayer();
+  // paso 1: tocá las cartas de tu mano que ofrecés
+  openHandPicker({
+    pid: me.id,
+    title: '🤝 Intercambio — qué das',
+    sub: 'Tocá las cartas que ofrecés. Cualquier jugador puede aceptar la oferta.',
+    need: null, min: 1,
+    confirmText: 'Siguiente',
+    onConfirm: (give) => showGetStep(give),
+  });
+}
+
+// paso 2: qué pedís a cambio (un deseo abstracto: no se ve la mano del otro)
+function showGetStep(give) {
+  const get = {};
+  const m = showModal(`
+    <h2>🤝 Intercambio — qué pedís</h2>
+    <p class="sub">Elegí qué querés a cambio. Si alguien acepta y tiene las cartas, se cierra.</p>
+    <div id="tget"></div>
+    <div class="btnrow">
+      <button class="btn" id="t-cancel">Cerrar</button>
+      <button class="btn primary" id="t-ok">Proponer</button>
+    </div>`);
+  const redraw = () => {
+    const box = m.querySelector('#tget');
+    box.innerHTML = '';
+    let total = 0;
+    for (const r of G.RESOURCES) total += get[r] || 0;
+    for (const r of G.RESOURCES) {
+      const n = get[r] || 0;
+      const row = document.createElement('div');
+      row.className = 'stepper';
+      row.innerHTML = `<span>${G.RES_EMOJI[r]}</span>
+        <span><button data-d="-1" ${n === 0 ? 'disabled' : ''}>−</button>
+        <span class="cnt">${n}</span>
+        <button data-d="1" ${n >= 9 ? 'disabled' : ''}>+</button></span>`;
+      row.querySelectorAll('button').forEach((b) => {
+        b.onclick = () => { get[r] = Math.max(0, (get[r] || 0) + Number(b.dataset.d)); redraw(); };
+      });
+      box.appendChild(row);
+    }
+    m.querySelector('#t-ok').disabled = total === 0;
+  };
+  redraw();
+  m.querySelector('#t-cancel').onclick = hideModal;
+  m.querySelector('#t-ok').onclick = () => {
+    const done = (r) => {
+      if (!r.ok) return flash(r.err);
+      if (session.online) { hideModal(); renderAll(); }
+      else showOfferWaiting();
+    };
+    if (session.online) act('proposeTrade', [give, { ...get }]).then(done);
+    else { const r = G.proposeTrade(game, give, { ...get }); if (!r.ok) return flash(r.err); done(r); }
+  };
+}
+
+function showOfferWaiting() {
+  const offer = game.tradeOffer;
+  if (!offer) return;
+  const otros = game.players.filter((q) => q.id !== offer.from);
+  const m = showModal(`
+    <h2>🤝 Oferta enviada</h2>
+    <p class="sub">Pasale la pantalla: <b>cualquiera puede aceptar</b>.</p>
+    <div class="pickgrid" id="t-aceptan"></div>
+    <div class="btnrow"><button class="btn" id="t-abort">Cancelar oferta</button></div>`);
+  const grid = m.querySelector('#t-aceptan');
+  for (const q of otros) {
+    const b = document.createElement('button');
+    b.className = 'pick';
+    b.innerHTML = `${houseHTML(q.color, 18)} Aceptar (${q.name})`;
+    b.onclick = () => {
+      const r = G.respondTrade(game, true, q.id);
+      if (r.ok) { hideModal(); renderAll(); flash('🤝 ¡Intercambio hecho!'); } else flash(r.err);
+    };
+    grid.appendChild(b);
+  }
+  m.querySelector('#t-abort').onclick = () => {
+    const r = G.cancelTrade(game);
+    if (r.ok) { hideModal(); renderAll(); } else flash(r.err);
+  };
+}
+
+function showOfferModal(myPid) {
+  const offer = game.tradeOffer;
+  if (!offer || offer.from === myPid) return;
+  const fromP = game.players[offer.from];
+  const det = (pkg) => G.RESOURCES.filter((r) => pkg[r]).map((r) => `${G.RES_EMOJI[r]}×${pkg[r]}`).join('  ');
+  const m = showModal(`
+    <h2>🤝 ${fromP.name} propone</h2>
+    <p class="sub">Te da: <b>${det(offer.give) || '—'}</b><br />Pide: <b>${det(offer.get) || '—'}</b></p>
+    <div class="btnrow">
+      <button class="btn" id="t-no">Pasar</button>
+      <button class="btn primary" id="t-yes">Aceptar</button>
+    </div>`);
+  const respond = (ok) => {
+    const done = (r) => {
+      hideModal();
+      passedTrades.add(game.tradeOffer?.id ?? -1); // no volver a abrir si pasé
+      renderAll();
+      if (!r.ok) flash(r.err);
+      else if (ok) flash('🤝 ¡Intercambio hecho!');
+    };
+    if (session.online) act('respondTrade', [ok]).then(done);
+    else done(G.respondTrade(game, ok, myPid));
+  };
+  m.querySelector('#t-yes').onclick = () => respond(true);
+  m.querySelector('#t-no').onclick = () => respond(false);
 }
 
 function goldChain() {
@@ -937,53 +1101,64 @@ function showStealModal(victims) {  const m = showModal(`
 
 function showTradeModal() {
   const p = mePlayer();
-  let give = null, get = null;
+  // paso 1: elegí el recurso a dar (la tasa depende de tus puertos)
   const m = showModal(`
     <h2>🔁 Comercio con el banco</h2>
-    <p class="sub">Elegí qué dar y qué recibir. Los puertos bajan la tasa.</p>
-    <h3 style="margin:14px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase">Dar</h3>
-    <div class="pickgrid" id="ggrid"></div>
-    <h3 style="margin:14px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase">Recibir</h3>
-    <div class="pickgrid" id="rgrid"></div>
-    <p id="terr" style="color:#ffd166;min-height:18px;margin:8px 0 0;font-size:13px"></p>
+    <p class="sub">Elegí qué dar: tocás las cartas de tu mano después.</p>
+    <div class="pickgrid" id="bgive"></div>
+    <div class="btnrow"><button class="btn" id="b-cancel">Cerrar</button></div>`);
+  const grid = m.querySelector('#bgive');
+  for (const r of G.RESOURCES) {
+    const rate = G.tradeRate(game, p.id, r);
+    const b = document.createElement('button');
+    b.className = 'pick';
+    b.innerHTML = `${G.RES_EMOJI[r]} ×${rate}<small style="display:block;font-size:11px;color:var(--muted)">tenés ${p.res[r]}</small>`;
+    b.disabled = p.res[r] < rate;
+    b.onclick = () => pickGiveForBank(r, rate);
+    grid.appendChild(b);
+  }
+  m.querySelector('#b-cancel').onclick = hideModal;
+}
+
+// paso 2: tocá las N cartas de ese recurso
+function pickGiveForBank(res, rate) {
+  openHandPicker({
+    pid: mePlayer().id,
+    title: `🔁 Dar ${rate}× ${G.RES_EMOJI[res]}`,
+    sub: `Tocá ${rate} cartas de ${resName(res)}.`,
+    need: rate,
+    sameType: true,
+    confirmText: 'Siguiente',
+    onConfirm: () => showReceiveStep(res, rate),
+  });
+}
+
+// paso 3: qué recibís
+function showReceiveStep(res, rate) {
+  const p = mePlayer();
+  let get = null;
+  const m = showModal(`
+    <h2>🔁 Recibir</h2>
+    <p class="sub">Das ${rate}× ${G.RES_EMOJI[res]}. Elegí qué recibís.</p>
+    <div class="pickgrid" id="bget"></div>
     <div class="btnrow">
-      <button class="btn" id="m-cancel">Cerrar</button>
-      <button class="btn primary" id="m-ok" disabled>Intercambiar</button>
+      <button class="btn" id="b-cancel">Cerrar</button>
+      <button class="btn primary" id="b-ok" disabled>Intercambiar</button>
     </div>`);
-  const ggrid = m.querySelector('#ggrid'), rgrid = m.querySelector('#rgrid');
-  const redraw = () => {
-    ggrid.innerHTML = ''; rgrid.innerHTML = '';
-    for (const r of G.RESOURCES) {
-      const rate = G.tradeRate(game, p.id, r);
-      const b = document.createElement('button');
-      b.className = 'pick' + (give === r ? ' on' : '');
-      b.innerHTML = `${G.RES_EMOJI[r]} ×${rate}<small style="display:block;font-size:11px;color:var(--muted)">tenés ${p.res[r]}</small>`;
-      b.disabled = p.res[r] < rate;
-      b.onclick = () => { give = r; redraw(); };
-      ggrid.appendChild(b);
-    }
-    for (const r of G.RESOURCES) {
-      const b = document.createElement('button');
-      b.className = 'pick' + (get === r ? ' on' : '');
-      b.textContent = G.RES_EMOJI[r];
-      b.onclick = () => { get = r; redraw(); };
-      rgrid.appendChild(b);
-    }
-    m.querySelector('#m-ok').disabled = !(give && get);
-  };
-  redraw();
-  m.querySelector('#m-cancel').onclick = hideModal;
-  m.querySelector('#m-ok').onclick = () => {
-    if (session.online) {
-      act('bankTrade', [give, get]).then((r) => {
-        if (r.ok) { hideModal(); renderAll(); } else m.querySelector('#terr').textContent = r.err;
-      });
-      return;
-    }
-    const r = G.bankTrade(game, give, get);
-    if (!r.ok) { m.querySelector('#terr').textContent = r.err; return; }
-    hideModal();
-    renderAll();
+  const grid = m.querySelector('#bget');
+  for (const r of G.RESOURCES) {
+    if (r === res) continue;
+    const b = document.createElement('button');
+    b.className = 'pick';
+    b.textContent = G.RES_EMOJI[r];
+    b.onclick = () => { get = r; grid.querySelectorAll('.pick').forEach((x) => x.classList.remove('on')); b.classList.add('on'); m.querySelector('#b-ok').disabled = false; };
+    grid.appendChild(b);
+  }
+  m.querySelector('#b-cancel').onclick = hideModal;
+  m.querySelector('#b-ok').onclick = () => {
+    const done = (r) => { if (r.ok) { hideModal(); renderAll(); } else m.querySelector('#b-cancel').before(Object.assign(document.createElement('p'), { textContent: r.err, style: 'color:#ff7b7b' })); };
+    if (session.online) act('bankTrade', [res, get]).then(done);
+    else done(G.bankTrade(game, res, get));
   };
 }
 

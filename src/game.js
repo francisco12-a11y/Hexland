@@ -46,7 +46,7 @@ const totalCards = (p) => RESOURCES.reduce((s, r) => s + p.res[r], 0);
 const canPay = (p, cost) => Object.entries(cost).every(([r, k]) => p.res[r] >= k);
 const pay = (p, cost) => Object.entries(cost).forEach(([r, k]) => (p.res[r] -= k));
 
-export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map = 'clasico') {
+export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map = 'clasico', winVp = WIN_VP) {
   const board = generateBoard(seed, map);
   const players = names.map((name, i) => ({
     id: i, name: name || `Jugador ${i + 1}`, color: PLAYER_COLORS[colors?.[i] ?? i],
@@ -59,7 +59,7 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map =
   const setupQueue = [...keys, ...keys.slice().reverse()];
   const rng = mulberry32((seed ^ 0x9e3779b9) >>> 0);
   return {
-    board, players, seed, map,
+    board, players, seed, map, winVp,
     revealed: [], // niebla: ids de hexes ya descubiertos (mapa niebla)
     rng,
     devDeck: shuffleDev(DEV_DECK.slice(), rng),
@@ -70,6 +70,8 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map =
     lastProduced: [], lastGain: {},
     stealCandidates: [], // a quién puede robar quien movió al ladrón (deriva UI)
     pendingGold: [],     // oro: [{pid, count}] — elecciones de recurso pendientes
+    tradeOffer: null,    // comercio abierto: {id, from, give, get} esperando aceptación
+    tradeSeq: 0,
     lastRollWas7: false, // regla de casa: no permite dos 7 seguidos
     devPlayed: false,    // una sola carta de desarrollo por turno
     freeRoads: 0,        // caminos gratis pendientes (construcción de caminos)
@@ -518,7 +520,7 @@ export function refreshLongestRoad(st) {
       st.players[bestPid].hasLongestRoad = true;
       log(st, `🛣️ ${st.players[bestPid].name} tomó el Camino Comercial (${bestLen} caminos, +2 PV).`);
       const w = st.players[bestPid];
-      if (vp(w) >= WIN_VP && st.phase !== 'over') checkWin(st, w);
+      if (vp(w) >= (st.winVp || WIN_VP) && st.phase !== 'over') checkWin(st, w);
     } else {
       log(st, `🛣️ ${st.players[cur].name} perdió el Camino Comercial.`);
     }
@@ -574,7 +576,7 @@ export function buildCity(st, vid) {
 }
 
 function checkWin(st, p) {
-  if (vp(p) >= WIN_VP) {
+  if (vp(p) >= (st.winVp || WIN_VP)) {
     st.phase = 'over';
     st.winner = p.id;
     log(st, `🏆 ¡${p.name} ganó con ${vp(p)} puntos de victoria!`);
@@ -606,6 +608,66 @@ export function bankTrade(st, give, get) {
   return OK;
 }
 
+// ---------- comercio entre jugadores ----------
+
+// normaliza y valida un paquete de cartas {res: n}
+function cleanPackage(st, pkg, pid, minTotal, checkHand = true) {
+  const out = {};
+  let total = 0;
+  for (const [r, n] of Object.entries(pkg || {})) {
+    if (!RESOURCES.includes(r) || !Number.isInteger(n) || n < 0) return null;
+    if (n > 0) out[r] = n;
+    total += n;
+  }
+  if (total < minTotal) return null;
+  if (!checkHand) return out;
+  const p = st.players[pid];
+  for (const [r, n] of Object.entries(out)) {
+    if (p.res[r] < n) return null;
+  }
+  return out;
+}
+
+export function proposeTrade(st, give, get) {
+  if (st.phase !== 'main') return err('Solo podés comerciar en tu turno principal');
+  const from = st.current;
+  const g = cleanPackage(st, give, from, 1);
+  if (!g) return err('Revisá qué ofrecés (no tenés esas cartas)');
+  const k = cleanPackage(st, get, from, 1, false); // lo pedido no sale de tu mano
+  if (!k) return err('Pedí al menos una carta');
+  st.tradeOffer = { id: ++st.tradeSeq, from, give: g, get: k };
+  log(st, `🤝 ${st.players[from].name} ofrece un intercambio: quien quiera, acepta.`);
+  return OK;
+}
+
+// oferta ABIERTA: cualquier jugador distinto del oferente puede aceptar
+export function respondTrade(st, accept, byPid) {
+  const offer = st.tradeOffer;
+  if (!offer) return err('No hay oferta pendiente');
+  if (byPid === offer.from || !st.players[byPid]) return err('No podés aceptar tu propia oferta');
+  if (st.phase !== 'main') return err('La oferta ya expiró');
+  const fromP = st.players[offer.from], toP = st.players[byPid];
+  if (!accept) return OK; // pasar no bloquea ni registra nada: sigue abierta para los demás
+  const g = cleanPackage(st, offer.give, offer.from, 1);
+  const k = cleanPackage(st, offer.get, byPid, 1);
+  if (!g) return err(`${fromP.name} ya no tiene esas cartas`);
+  if (!k) return err('Ya no tenés esas cartas');
+  for (const [r, n] of Object.entries(g)) { fromP.res[r] -= n; toP.res[r] += n; }
+  for (const [r, n] of Object.entries(k)) { toP.res[r] -= n; fromP.res[r] += n; }
+  st.tradeOffer = null;
+  const det = (p) => Object.entries(p).map(([r, n]) => `${RES_EMOJI[r]}×${n}`).join(' ');
+  log(st, `🤝 ${toP.name} aceptó: ${fromP.name} dio ${det(g)} por ${det(k)}.`);
+  return OK;
+}
+
+export function cancelTrade(st) {
+  const offer = st.tradeOffer;
+  if (!offer) return err('No hay oferta pendiente');
+  st.tradeOffer = null;
+  log(st, `🚫 ${st.players[offer.from].name} canceló su propuesta.`);
+  return OK;
+}
+
 export const GOLD_CHOICES = ['wood', 'wheat', 'brick', 'ore']; // sin oveja, como pidió Fran
 
 export function takeGold(st, res) {
@@ -623,6 +685,7 @@ export function takeGold(st, res) {
 export function endTurn(st) {
   if (st.phase !== 'main') return err('Terminá lo pendiente antes');
   if (st.pendingGold.length) return err('Cobrá el oro antes de terminar el turno');
+  if (st.tradeOffer) return err('Esperá la respuesta al intercambio');
   st.current = (st.current + 1) % st.players.length;
   if (st.current === 0) st.turn++;
   st.phase = 'roll';
@@ -630,6 +693,7 @@ export function endTurn(st) {
   st.stealCandidates = [];
   st.devPlayed = false;
   st.freeRoads = 0; // los caminos gratis no se arrastran al turno siguiente
+  st.tradeOffer = null; // las ofertas mueren con el turno
   log(st, `— Turno ${st.turn}: ${st.players[st.current].name} —`);
   return { ok: true, next: st.current };
 }

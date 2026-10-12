@@ -390,3 +390,9 @@ body {
    funciona como botón para deseleccionar */
 #prompt.cancelable { cursor: pointer; }
 #prompt.cancelable::after { content: "  ✕"; opacity: 0.5; font-weight: 400; }
+
+/* selector de cartas de la mano (descarte, banco, intercambio) */
+.handpick { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; margin: 12px 0; }
+.pickcard { font-size: 26px; padding: 0; }
+.pickcard.sel { outline: 3px solid var(--accent); transform: translateY(-6px); box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4); }
+.pickcard:disabled { opacity: 0.3; }

@@ -924,3 +924,86 @@ test('oro: al producir te deja elegir recurso (pueblo 1, ciudad 2) y bloquea el 
     assert.deepEqual(st.pendingGold, []);
   }
 });
+
+// ---------- comercio entre jugadores ----------
+
+test('comercio: propuesta abierta, cualquiera acepta, se mueven cartas de verdad', () => {
+  const st = startGame(7);
+  st.phase = 'main';
+  const p0 = st.players[0], p1 = st.players[1], p2 = st.players[2];
+  for (const q of st.players) G.RESOURCES.forEach((r) => (q.res[r] = 0)); // sin cartas de setup
+  p0.res.wood = 3; p0.res.brick = 1;
+  p1.res.wheat = 2;
+  // propuesta inválida: fuera de main, sin cartas suficientes, sin pedir nada
+  st.phase = 'roll';
+  assert.equal(G.proposeTrade(st, { wood: 1 }, { wheat: 1 }).ok, false, 'fuera de main no');
+  st.phase = 'main';
+  assert.equal(G.proposeTrade(st, { wood: 5 }, { wheat: 1 }).ok, false, 'no tenés 5 maderas');
+  assert.equal(G.proposeTrade(st, { wood: 1 }, {}).ok, false, 'hay que pedir algo');
+  // propuesta válida: abierta a todos
+  assert.ok(G.proposeTrade(st, { wood: 2, brick: 1 }, { wheat: 2 }).ok);
+  assert.equal(st.tradeOffer.from, 0);
+  // terminar el turno está bloqueado con oferta pendiente
+  assert.equal(G.endTurn(st).ok, false);
+  // el oferente no puede aceptar su propia oferta
+  assert.equal(G.respondTrade(st, true, 0).ok, false);
+  // aceptar sin tener lo pedido: falla
+  assert.equal(G.respondTrade(st, true, 2).ok, false, 'el jugador 2 no tiene trigo');
+  // el jugador 1 acepta: se mueven las cartas
+  assert.ok(G.respondTrade(st, true, 1).ok);
+  assert.equal(p0.res.wood, 1);       // 3 - 2
+  assert.equal(p0.res.brick, 0);      // 1 - 1
+  assert.equal(p0.res.wheat, 2);      // +2
+  assert.equal(p1.res.wheat, 0);      // 2 - 2
+  assert.equal(p1.res.wood, 2);
+  assert.equal(p1.res.brick, 1);
+  assert.deepEqual(st.tradeOffer, null);
+  assert.ok(st.log.some((l) => l.includes('aceptó')));
+  assert.ok(G.endTurn(st).ok);
+});
+
+test('comercio: cancelar oferta y pasarla sin aceptar; expira al terminar el turno', () => {
+  const st = startGame(7);
+  st.phase = 'main';
+  const p0 = st.players[0], p1 = st.players[1];
+  p0.res.ore = 2;
+  p1.res.sheep = 1;
+  assert.ok(G.proposeTrade(st, { ore: 1 }, { sheep: 1 }).ok);
+  const id = st.tradeOffer.id;
+  // pasar no consume la oferta (queda abierta para los demás)
+  assert.ok(G.respondTrade(st, false, 1).ok);
+  assert.equal(st.tradeOffer.id, id);
+  // cancelar la limpia
+  assert.ok(G.cancelTrade(st).ok);
+  assert.deepEqual(st.tradeOffer, null);
+  assert.equal(G.cancelTrade(st).ok, false);
+  // nueva oferta: hay que cancelarla explícito, el turno no termina con ella abierta
+  assert.ok(G.proposeTrade(st, { ore: 1 }, { sheep: 1 }).ok);
+  assert.equal(G.endTurn(st).ok, false, 'bloquea el turno con oferta abierta');
+  assert.ok(G.cancelTrade(st).ok);
+  assert.ok(G.endTurn(st).ok);
+  assert.deepEqual(st.tradeOffer, null);
+});
+
+test('victoria con puntos configurables (slider 6-12)', () => {
+  const st = startGame(7);
+  assert.equal(st.winVp, 10, 'default 10');
+  const st6 = startGame(7);
+  st6.winVp = 6;
+  st6.phase = 'main';
+  const p = st6.players[0];
+  for (const r of G.RESOURCES) p.res[r] = 50;
+  while (p.settlements.length < 5) {
+    const spots = G.settlementSpots(st6, 0, true);
+    if (!spots.length) break;
+    p.settlements.push(spots[0]);
+  }
+  let won = false;
+  for (let i = 0; i < 5 && !won; i++) {
+    if (!p.settlements.length) break;
+    G.buildCity(st6, p.settlements[0]);
+    if (st6.phase === 'over') won = true;
+  }
+  assert.ok(won, 'a 6 PV se gana antes');
+  assert.ok(G.vp(p) >= 6);
+});
