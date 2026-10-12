@@ -792,54 +792,85 @@ test('niebla: recompensa de descubrimiento — quien revela se lleva 1 recurso d
 
 // ---------- mapa oro ----------
 
-test('volcán: rectángulo 10×7 fijo (desierto en el borde, piedra al centro, oro con 8)', () => {
-  const layout = (bd) => bd.hexes.map((h) => [h.q, h.r, h.terrain]).sort();
-  let layout7 = null;
+test('volcán: grilla 10×7 de Fran (69 hexes) con N/D/O exactos y fijos', () => {
+  // la grilla de Fran: fila 4 tiene 9 casillas (la del oro, centrada)
+  const GRID = [
+    'RRRDNNRNRR',
+    'RRNNRNRNRR',
+    'RRNRRRRRRR',
+    'RRRNONRNR',
+    'RRRNRNRRRR',
+    'RRRNRNRRRR',
+    'RRRNRNRRRR',
+  ];
+  const Q0 = [-3, -4, -4, -4, -5, -6, -6];
+  // set esperado de N/D/O en axial
+  const esperado = { N: new Set(), D: null, O: null };
+  GRID.forEach((row, f) => {
+    [...row].forEach((code, c) => {
+      const q = Q0[f] + c, r = f - 3;
+      if (code === 'N') esperado.N.add(`${q},${r}`);
+      if (code === 'D') esperado.D = `${q},${r}`;
+      if (code === 'O') esperado.O = `${q},${r}`;
+    });
+  });
+  assert.equal(esperado.N.size, 17);
+
+  let layout7 = null, portPos7 = null, portTypes7 = null;
   for (const seed of [7, 42, 999]) {
     const b = generateBoard(seed, 'oro');
-    // 10 columnas × 7 filas = 70 hexes
-    assert.equal(b.hexes.length, 70);
-    assert.equal(new Set(b.hexes.map((h) => `${h.q},${h.r}`)).size, 70);
-    const terr = {};
-    b.hexes.forEach((h) => { terr[h.terrain] = (terr[h.terrain] || 0) + 1; });
-    assert.equal(terr.desert, 30);
-    assert.equal(terr.mountains, 25);
-    assert.equal(terr.forest, 6);
-    assert.equal(terr.pasture, 4);
-    assert.equal(terr.hills, 4);
-    // oro fijo en el centro exacto con su 8
-    const gold = b.hexes.find((h) => h.terrain === 'gold');
-    assert.equal(gold.number, 8);
-    assert.equal(gold.q, 0); assert.equal(gold.r, 0);
-    // el desierto es TODO el borde: filas de los extremos o primeras/últimas columnas
+    assert.equal(b.hexes.length, 69);
+    // N/D/O exactos
     for (const h of b.hexes) {
-      if (h.terrain !== 'desert') continue;
-      const fila = Math.abs(h.r) === 3
-        || h.q === -Math.round(4.5 + h.r / 2)
-        || h.q === -Math.round(4.5 + h.r / 2) + 9;
-      assert.ok(fila, 'desierto fuera del borde');
-      assert.equal(h.number, 0);
+      const key = `${h.q},${h.r}`;
+      if (h.fog) assert.ok(esperado.N.has(key), `niebla en ${key}`);
+      else assert.ok(!esperado.N.has(key), `${key} no es niebla`);
+      if (h.terrain === 'desert') assert.equal(key, esperado.D);
+      if (h.terrain === 'gold') { assert.equal(key, esperado.O); assert.equal(h.number, 8); }
     }
-    // piedra/desierto/oro siempre en el mismo lugar
-    if (layout7 === null) layout7 = JSON.stringify(layout(b));
-    else assert.equal(JSON.stringify(layout(b)), layout7, 'layout fijo entre semillas');
-    // números sin 6/8 pegados (contando el 8 del oro)
+    const fog = b.hexes.filter((h) => h.fog);
+    assert.equal(fog.length, 17);
+    // N/D/O siempre en el mismo lugar
+    const kindLayout = JSON.stringify(b.hexes.map((h) => [h.q, h.r, h.fog ? 'N' : h.terrain]).sort((x, y) => x[0] - y[0] || x[1] - y[1] || (x[2] < y[2] ? -1 : 1)));
+    const kindFixed = JSON.stringify(b.hexes.map((h) => [h.q, h.r, h.fog ? 'N' : h.terrain === 'desert' ? 'D' : h.terrain === 'gold' ? 'O' : 'R']).sort());
+    if (layout7 === null) layout7 = kindFixed;
+    else assert.equal(kindFixed, layout7, 'N/D/O fijos entre semillas');
+    // recursos balanceados: entre 13 y 14 de cada uno
+    const terr = {};
+    b.hexes.forEach((h) => { if (!['desert', 'gold'].includes(h.terrain)) terr[h.terrain] = (terr[h.terrain] || 0) + 1; });
+    for (const t of ['forest', 'pasture', 'fields', 'hills', 'mountains']) {
+      assert.ok(terr[t] >= 13 && terr[t] <= 14, `${t}: ${terr[t]}`);
+    }
+    // todas las casillas con recurso tienen número, sin 6/8 pegados (el oro cuenta)
     const numbered = b.hexes.filter((h) => h.number);
+    assert.equal(numbered.length, 68);
     for (const x of numbered) for (const y of numbered) {
       if (x.id >= y.id) continue;
       const adj = (Math.abs(x.q - y.q) + Math.abs(x.r - y.r) + Math.abs(x.q + x.r - y.q - y.r)) / 2;
       assert.ok(!(adj === 1 && [6, 8].includes(x.number) && [6, 8].includes(y.number)), '6/8 pegados');
     }
+    // puertos: posiciones fijas, tipo barajado
     assert.equal(b.ports.length, 9);
+    const pos = JSON.stringify(b.ports.map((p) => p.vids));
+    const types = JSON.stringify(b.ports.map((p) => p.type));
+    if (portPos7 === null) { portPos7 = pos; portTypes7 = types; }
+    else {
+      assert.equal(pos, portPos7, 'puertos en posiciones fijas');
+      if (types === portTypes7) console.log('  (aviso: tipos de puerto iguales entre semillas', seed - 1, seed, ')');
+    }
   }
 });
 
 test('oro: al producir te deja elegir recurso (pueblo 1, ciudad 2) y bloquea el fin de turno', () => {
   const st = G.newGame(['A', 'B'], 7, null, 'oro');
   assert.equal(st.map, 'oro');
-  // asentamiento junto al oro (los vértices del hex central)
+  // asentamiento junto al oro en un vértice libre de niebla
   const gold = st.board.hexes.find((h) => h.terrain === 'gold');
-  G.placeSetupSettlement(st, gold.vertices[0]);
+  const vidOro = gold.vertices.find((v) =>
+    !st.board.vertices[v].hexes.some((hid) => st.board.hexes[hid].fog)
+    && !st.board.vertices[v].hexes.some((hid) => hid !== gold.id && st.board.hexes[hid].number === 8));
+  assert.ok(vidOro != null, 'el oro tiene al menos un vértice sin niebla');
+  G.placeSetupSettlement(st, vidOro);
   G.placeSetupRoad(st, G.setupRoadSpots(st, 0)[0]);
   G.placeSetupSettlement(st, G.settlementSpots(st, 1, true)[0]);
   G.placeSetupRoad(st, G.setupRoadSpots(st, 1)[0]);
