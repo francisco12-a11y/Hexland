@@ -283,6 +283,25 @@ body {
 .wintrophy { font-size: 54px; margin-bottom: 6px; }
 .empty { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }
 
+/* ---------- lobby online ---------- */
+#onlinebox .btn.big { width: 100%; }
+#join-code, #my-name {
+  flex: 1; background: var(--panel2); color: var(--ink);
+  border: 1px solid #2a4a7d; border-radius: 9px; padding: 8px 12px; font-size: 15px;
+}
+#join-code { text-transform: uppercase; letter-spacing: 4px; font-weight: 700; text-align: center; }
+.roomcode-label { text-align: center; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin: 0; }
+.roomcode {
+  font-size: 46px; font-weight: 800; letter-spacing: 10px; color: var(--accent);
+  text-align: center; margin: 4px 0 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#room-players { list-style: none; padding: 0; margin: 0 0 12px; }
+#room-players li {
+  padding: 6px 10px; border-radius: 8px; background: var(--panel2);
+  margin-bottom: 4px; display: flex; gap: 8px; align-items: center; font-size: 14.5px;
+}
+.online-err { color: #ff7b7b; font-size: 13px; text-align: center; min-height: 18px; margin: 10px 0 0; }
+
 @media (max-width: 940px) {
   #game {
     grid-template-columns: 1fr;

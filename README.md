@@ -4,17 +4,29 @@ Clon jugable del clásico juego de colonos sobre una isla de hexágonos. 100% cl
 
 ## Estado
 
-**v0 — prototipo local (pass & play)**: 2 a 4 jugadores comparten una pantalla.
+**v0.2 — pass & play + salas online (PeerJS)**
 
-Incluye:
+- **Pass & play**: 2 a 4 jugadores comparten pantalla.
+- **Online**: el host crea una sala, comparte el código de 4 caracteres (o el link `?sala=CODIGO`), los demás se suman desde su navegador y juegan cada uno en el suyo. Arquitectura **host-authoritative**: el host corre las reglas, valida cada acción y broadcastea el estado completo; el cliente solo dibuja.
+
+Lo que incluye:
 
 - Tablero aleatorio de 19 hexágonos con semilla reproducible (no hay 6/8 pegados)
-- 9 puertos (4× 3:1, 5× 2:1) con acceso desde los vértices costeros
+- Marco de puertos fijo: 9 puertos en las mismas posiciones siempre (4× 3:1, 5× 2:1), cada uno conectado a un vértice de 1 hex + uno de 2 hexes
 - Colocación inicial en serpiente (con recursos en el segundo asentamiento)
-- Dados, producción, ladrón, descarte de más de 7 cartas y robo
-- Construcción de caminos, asentamientos y ciudades (con regla de distancia y piezas limitadas)
+- Dados, producción con resaltado de hexágonos y carteles "+N", ladrón, descarte de más de 7 cartas y robo
+- Construcción de caminos, asentamientos y ciudades (regla de distancia, conectividad por caminos propios y piezas limitadas)
 - Comercio con el banco (4:1, y 3:1 / 2:1 si tocás puerto)
-- Victoria a los **8 puntos** (asentamientos y ciudades — con cartas de desarrollo y camino comercial el umbral clásico vuelve a ser 10)
+- Victoria a los 8 puntos (asentamientos y ciudades — con cartas de desarrollo y camino comercial el umbral clásico vuelve a ser 10)
+
+## Cómo jugar online
+
+1. El host entra, pestaña **Online**, pone su nombre y toca **Crear sala**.
+2. Comparte el código (o el link copiado).
+3. Los jugadores entran al link, ponen su nombre y tocan **Unirme**.
+4. El host toca **Comenzar partida** cuando estén todos.
+
+Limitaciones v0.2: si el host se va, se corta la partida (migración de host en el roadmap); el estado completo viaja a todos (con amigos, confía 😄); algunas redes móviles con CGNAT pueden necesitar TURN (roadmap).
 
 ## Cómo jugar
 

@@ -39,25 +39,56 @@
 
   <section id="lobby" class="card">
     <h2>Nueva partida</h2>
-    <div class="row">
-      <span class="lbl">Jugadores</span>
-      <div id="countseg" class="seg">
-        <button data-n="2">2</button>
-        <button data-n="3">3</button>
-        <button data-n="4" class="on">4</button>
+    <div class="seg" id="modetabs" style="margin-bottom:16px">
+      <button data-m="local" class="on">📺 Pass &amp; Play</button>
+      <button data-m="online">🌐 Online</button>
+    </div>
+
+    <div id="localbox">
+      <div class="row">
+        <span class="lbl">Jugadores</span>
+        <div id="countseg" class="seg">
+          <button data-n="2">2</button>
+          <button data-n="3">3</button>
+          <button data-n="4" class="on">4</button>
+        </div>
       </div>
+      <div id="names"></div>
+      <div class="row">
+        <span class="lbl">Semilla <small>(opcional)</small></span>
+        <input id="seed" type="number" inputmode="numeric" placeholder="aleatoria" />
+      </div>
+      <button id="play" class="btn primary big">🎮 Jugar</button>
+      <p class="note">Comparten esta pantalla y se pasan el mouse en cada turno.</p>
     </div>
-    <div id="names"></div>
-    <div class="row">
-      <span class="lbl">Semilla <small>(opcional)</small></span>
-      <input id="seed" type="number" inputmode="numeric" placeholder="aleatoria" />
+
+    <div id="onlinebox" hidden>
+      <div id="online-home">
+        <div class="row"><span class="lbl">Tu nombre</span><input id="my-name" maxlength="14" placeholder="Tu nombre" /></div>
+        <button id="mk-room" class="btn primary big">🏠 Crear sala</button>
+        <div class="row" style="margin-top:14px">
+          <span class="lbl">Código</span>
+          <input id="join-code" maxlength="4" placeholder="AB12" style="text-transform:uppercase" />
+        </div>
+        <button id="join-room" class="btn big">🚪 Unirme a la sala</button>
+        <p class="note">El host crea la sala y comparte el código o el link.<br />Requiere conexión con el servidor de PeerJS (gratis).</p>
+      </div>
+      <div id="room-panel" hidden>
+        <p class="roomcode-label">Código de sala</p>
+        <div class="roomcode" id="room-code">····</div>
+        <div class="row" style="justify-content:center"><button id="copy-link" class="btn">🔗 Copiar link de invitación</button></div>
+        <h3 style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:14px 0 6px">Jugadores en la sala</h3>
+        <ul id="room-players"></ul>
+        <button id="start-online" class="btn primary big" hidden>🚀 Comenzar partida</button>
+        <p class="note" id="room-note"></p>
+      </div>
+      <p class="online-err" id="online-err"></p>
     </div>
-    <button id="play" class="btn primary big">🎮 Jugar</button>
-    <p class="note">v0 — pass &amp; play en esta pantalla.<br />Multijugador online (WebRTC) en camino 🛠️</p>
   </section>
 
   <div id="overlay" hidden></div>
 
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

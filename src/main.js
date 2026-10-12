@@ -1,10 +1,28 @@
-// Hexland — UI orchestration: lobby, turn flow, modals. Pure rules live in game.js.
+// Hexland — UI orchestration: lobby, turn flow, modals.
+// Two modes share this file: pass & play (state is local and actions run
+// directly in game.js) and online rooms (host-authoritative: the host runs
+// game.js, clients send action envelopes and mirror the broadcast state).
 
 import { renderBoard } from './render.js';
 import * as G from './game.js';
+import * as Net from './net.js';
 
 let game = null;
 let mode = null; // {kind:'settlement'|'city'|'road'|'robber', setup:bool}
+
+const session = {
+  online: false,
+  isHost: false,
+  myId: 0,
+  code: null,
+  lobby: [],          // host side: [{pid, name, peerId}]
+  hostApi: null,
+  clientApi: null,
+  started: false,     // online: game already created
+};
+let lobbyTab = 'local';
+const pendingActs = new Map(); // rid → resolve (client waiting host result)
+let ridSeq = 1;
 
 const $ = (s) => document.querySelector(s);
 const svg = () => $('#board');
@@ -21,12 +39,20 @@ const PHASE_LABEL = {
 /* ---------------- lobby ---------------- */
 
 let playerCount = 4;
-let colorPick = [0, 1, 2, 3]; // per player: index into PLAYER_COLORS
+let colorPick = [0, 1, 2, 3];
 
 const houseHTML = (color, size = 26) =>
   `<svg viewBox="-14 -14 28 28" width="${size}" height="${size}" style="vertical-align:middle;overflow:visible"><path d="M-9 4 L-9 -4 L0 -12 L9 -4 L9 4 Z" fill="${color}" stroke="#17324f" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
 
 function buildLobby() {
+  $('#modetabs').querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.m === lobbyTab);
+    b.onclick = () => { lobbyTab = b.dataset.m; buildLobby(); };
+  });
+  $('#localbox').hidden = lobbyTab !== 'local';
+  $('#onlinebox').hidden = lobbyTab !== 'online';
+  if (lobbyTab === 'online') return; // el panel online es HTML estático
+
   const seg = $('#countseg');
   seg.querySelectorAll('button').forEach((b) => {
     b.classList.toggle('on', Number(b.dataset.n) === playerCount);
@@ -74,26 +100,257 @@ function startGame() {
   mode = { kind: 'settlement', setup: true };
   shownDice = null;
   lastDiceKey = null;
+  enterGameScreen();
+}
+
+function enterGameScreen() {
   $('#lobby').hidden = true;
   $('#game').hidden = false;
   renderAll();
 }
 
+/* ---------------- online session ---------------- */
+
+const onlineErr = (msg) => { $('#online-err').textContent = msg || ''; };
+
+function myName() {
+  return ($('#my-name').value || '').trim() || (session.isHost ? 'Host' : 'Jugador');
+}
+
+function renderRoom() {
+  $('#room-code').textContent = session.code || '····';
+  const ul = $('#room-players');
+  ul.innerHTML = '';
+  session.lobby.forEach((l, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `${houseHTML(G.PLAYER_COLORS[i], 20)} ${l.name}${i === 0 ? ' <small style="color:var(--muted)">(host)</small>' : ''}`;
+    ul.appendChild(li);
+  });
+  const start = $('#start-online');
+  start.hidden = !session.isHost;
+  start.disabled = session.lobby.length < 2;
+  $('#room-note').textContent = session.isHost
+    ? (session.lobby.length < 2 ? 'Esperando que se sume alguien (mínimo 2)…' : 'Listo para arrancar.')
+    : 'Esperando que el host arranque la partida…';
+}
+
+function broadcastLobby() {
+  session.hostApi?.broadcast({ t: 'lobby', players: session.lobby.map((l) => ({ pid: l.pid, name: l.name })) });
+  renderRoom();
+}
+
+function createRoom() {
+  if (!Net.peerAvailable()) return onlineErr('PeerJS no cargó (¿sin internet?)');
+  onlineErr('');
+  session.online = true;
+  session.isHost = true;
+  session.code = Net.randomCode();
+  session.lobby = [{ pid: 0, name: myName(), peerId: 'host' }];
+  session.hostApi = Net.hostRoom(session.code, {
+    onOpen: () => {
+      $('#online-home').hidden = true;
+      $('#room-panel').hidden = false;
+      broadcastLobby();
+    },
+    onJoin: (peerId) => {
+      // el pid real se asigna cuando manda {t:'join'}
+      if (!session.hostApi) return;
+      session.hostApi.sendTo(peerId, { t: 'lobby', players: session.lobby.map((l) => ({ pid: l.pid, name: l.name })) });
+    },
+    onLeave: (peerId) => {
+      const l = session.lobby.find((x) => x.peerId === peerId);
+      if (l && game && game.phase !== 'over') log(game, `🔌 ${l.name} se desconectó.`);
+      broadcastLobby();
+      renderAll();
+    },
+    onMessage: hostMessage,
+    onError: (e) => onlineErr(`Error de sala: ${e.type || e}`),
+  });
+}
+
+function joinRoomByCode() {
+  if (!Net.peerAvailable()) return onlineErr('PeerJS no cargó (¿sin internet?)');
+  const code = ($('#join-code').value || '').trim().toUpperCase();
+  if (code.length < 3) return onlineErr('Poné el código de la sala');
+  onlineErr('');
+  session.online = true;
+  session.isHost = false;
+  session.code = code;
+  session.clientApi = Net.joinRoom(code, {
+    onOpen: (api) => api.send({ t: 'join', name: myName() }),
+    onMessage: clientMessage,
+    onClose: () => {
+      showModal(`
+        <h2>🔌 Conexión perdida</h2>
+        <p class="sub">Se cortó la conexión con el host.</p>
+        <div class="btnrow"><button class="btn primary big" id="m-reload">Volver a empezar</button></div>`)
+        .querySelector('#m-reload').onclick = () => location.reload();
+    },
+    onError: (e) => {
+      if (e.type === 'peer-unavailable') onlineErr('No existe esa sala (¿código bien escrito?)');
+      else onlineErr(`Error: ${e.type || e}`);
+    },
+  });
+}
+
+function clientMessage(msg) {
+  if (msg.t === 'welcome') {
+    session.myId = msg.pid;
+    $('#online-home').hidden = true;
+    $('#room-panel').hidden = false;
+    renderRoom();
+  } else if (msg.t === 'lobby') {
+    session.lobby = msg.players;
+    renderRoom();
+  } else if (msg.t === 'state') {
+    applyRemoteState(msg.state);
+  } else if (msg.t === 'result') {
+    pendingActs.get(msg.rid)?.({ ok: msg.ok, err: msg.err });
+    pendingActs.delete(msg.rid);
+  } else if (msg.t === 'err') {
+    flash(msg.msg);
+  }
+}
+
+function sendAct(kind, args = []) {
+  return new Promise((res) => {
+    const rid = ridSeq++;
+    pendingActs.set(rid, res);
+    session.clientApi.send({ t: 'act', rid, kind, args });
+    setTimeout(() => {
+      if (pendingActs.has(rid)) {
+        pendingActs.delete(rid);
+        res({ ok: false, err: 'El host no respondió' });
+      }
+    }, 8000);
+  });
+}
+
+// ruta única de acciones en online: el host aplica en su engine (autoridad),
+// los clientes mandan el sobre y resuelven con el {ok,err} del host
+function act(kind, args = []) {
+  if (session.isHost) {
+    const r = hostApply(kind, args, session.myId);
+    afterHostApply();
+    return Promise.resolve(r);
+  }
+  return sendAct(kind, args);
+}
+
+const HOST_ACTIONS = {
+  placeSetupSettlement: (st, a) => G.placeSetupSettlement(st, a[0]),
+  placeSetupRoad: (st, a) => G.placeSetupRoad(st, a[0]),
+  roll: (st) => G.rollDice(st),
+  buildRoad: (st, a) => G.buildRoad(st, a[0]),
+  buildSettlement: (st, a) => G.buildSettlement(st, a[0]),
+  buildCity: (st, a) => G.buildCity(st, a[0]),
+  bankTrade: (st, a) => G.bankTrade(st, a[0], a[1]),
+  moveRobber: (st, a) => G.moveRobber(st, a[0]),
+  stealFrom: (st, a) => G.stealFrom(st, a[0]),
+  discard: (st, a) => G.discard(st, a[0], a[1]),
+  endTurn: (st) => G.endTurn(st),
+};
+
+function hostApply(kind, args, byPid) {
+  if (!game) return { ok: false, err: 'La partida no arrancó' };
+  const fn = HOST_ACTIONS[kind];
+  if (!fn) return { ok: false, err: 'Acción desconocida' };
+  const owner = kind === 'discard'
+    ? game.pendingDiscards[0]
+    : game.phase === 'setup'
+      ? game.setupQueue[game.setupIdx]
+      : game.current;
+  if (owner !== byPid) return { ok: false, err: 'No es tu turno' };
+  return fn(game, args);
+}
+
+function broadcastState() {
+  if (!session.isHost || !game) return;
+  try {
+    // JSON limpia la función rng (los clientes nunca la usan; el host es la autoridad)
+    const plain = JSON.parse(JSON.stringify(game));
+    session.hostApi?.broadcast({ t: 'state', state: plain });
+  } catch (e) {
+    console.error('broadcast falló', e);
+  }
+}
+
+function applyRemoteState(state) {
+  const phaseChanged = !game || game.phase !== state.phase;
+  game = state;
+  if (phaseChanged) mode = null; // conservar la selección si la fase sigue igual
+  if ($('#lobby') && !$('#lobby').hidden) enterGameScreen();
+  renderAll();
+  onlineUiFromState();
+}
+
+// derivaciones de UI que antes eran resultado directo de la acción local
+function onlineUiFromState() {
+  if (!game || !session.online) return;
+  const modalOpen = !!$('#overlay .modal');
+  if (game.phase === 'discard' && game.pendingDiscards[0] === session.myId && !modalOpen) discardChain();
+  if (game.stealCandidates?.length && game.current === session.myId && !modalOpen) showStealModal(game.stealCandidates);
+  if (game.phase === 'over' && !modalOpen) showWin();
+}
+
+function hostMessage(peerId, msg) {
+  if (msg.t === 'join') {
+    if (game) return session.hostApi.sendTo(peerId, { t: 'err', msg: 'La partida ya arrancó' });
+    if (session.lobby.length >= 4) return session.hostApi.sendTo(peerId, { t: 'err', msg: 'La sala está llena' });
+    session.lobby.push({ pid: session.lobby.length, name: (msg.name || 'Jugador').slice(0, 14), peerId });
+    session.hostApi.sendTo(peerId, { t: 'welcome', pid: session.lobby.length - 1 });
+    broadcastLobby();
+  } else if (msg.t === 'act') {
+    const pid = session.lobby.find((l) => l.peerId === peerId)?.pid;
+    if (pid == null) return;
+    const r = hostApply(msg.kind, msg.args || [], pid);
+    session.hostApi.sendTo(peerId, { t: 'result', rid: msg.rid, ok: r.ok, err: r.err || null });
+    afterHostApply();
+  }
+}
+
+function afterHostApply() {
+  broadcastState();
+  renderAll();
+  onlineUiFromState();
+}
+
+function startOnlineGame() {
+  const names = session.lobby.map((l) => l.name);
+  const seed = Math.floor(Math.random() * 2 ** 31);
+  game = G.newGame(names, seed);
+  session.myId = 0;
+  session.started = true;
+  mode = { kind: 'settlement', setup: true };
+  shownDice = null;
+  lastDiceKey = null;
+  broadcastState();
+  enterGameScreen();
+}
+
 /* ---------------- rendering ---------------- */
+
+const mePlayer = () => (session.online ? game.players[session.myId] : cur());
 
 function cur() { return game.players[game.current]; }
 
 function targetsForMode() {
   const t = { vertices: new Set(), edges: new Set(), hexes: new Set() };
   if (!game || game.phase === 'over') return t;
+  const myTurnSetup = !session.online || game.setupQueue[game.setupIdx] === session.myId;
   if (game.phase === 'setup') {
-    if (mode?.kind === 'settlement') G.settlementSpots(game, game.current, true).forEach((v) => t.vertices.add(v));
-    if (mode?.kind === 'road') G.setupRoadSpots(game, game.current).forEach((e) => t.edges.add(e));
+    if (!myTurnSetup) return t;
+    // en online el paso lo dicta el estado (¿ya colocó el asentamiento?), no el mode local
+    const roadStep = session.online ? game.lastSetupVertex != null : mode?.kind === 'road';
+    if (!roadStep) G.settlementSpots(game, game.current, true).forEach((v) => t.vertices.add(v));
+    else G.setupRoadSpots(game, game.current).forEach((e) => t.edges.add(e));
   } else if (game.phase === 'main' && mode) {
+    if (session.online && game.current !== session.myId) return t;
     if (mode.kind === 'settlement') G.settlementSpots(game, game.current, false).forEach((v) => t.vertices.add(v));
     if (mode.kind === 'city') G.citySpots(game, game.current).forEach((v) => t.vertices.add(v));
     if (mode.kind === 'road') G.roadSpots(game, game.current).forEach((e) => t.edges.add(e));
   } else if (game.phase === 'robber') {
+    if (session.online && game.current !== session.myId) return t;
     G.robberSpots(game).forEach((h) => t.hexes.add(h));
   }
   return t;
@@ -135,7 +392,7 @@ function updateDice() {
   if (game.dice) shownDice = game.dice;
   const placeholder = !shownDice;
   const [a, b] = shownDice || [6, 6]; // 12 as the "waiting for first roll" face
-  const canRoll = game.phase === 'roll';
+  const canRoll = game.phase === 'roll' && (!session.online || game.current === session.myId);
   box.hidden = false;
   box.classList.toggle('placeholder', placeholder);
   box.classList.toggle('seven', !placeholder && a + b === 7);
@@ -157,23 +414,34 @@ function updateDice() {
 
 let rolling = false;
 function doRoll() {
-  if (rolling || !game || game.phase !== 'roll') return;
-  rolling = true;
-  $('#diceres').classList.remove('attn');
+  if (rolling) return;
+  if (!game) return;
+  if (session.online) {
+    if (game.phase !== 'roll' || game.current !== session.myId) return;
+    rolling = true;
+    $('#diceres').classList.remove('attn');
+    act('roll').then((r) => {
+      rolling = false;
+      if (!r.ok) return flash(r.err);
+      renderAll(); // state already arrived via broadcast (or is local-host)
+    });
+    return;
+  }
+  const r = G.rollDice(game);
+  if (!r.ok) return flash(r.err);
+  // quick dice animation, then settle into the new phase
   let n = 0;
   const iv = setInterval(() => {
-    const r = () => 1 + Math.floor(Math.random() * 6);
-    $('#diceres').innerHTML = `<span class="die">${diceSVG(r())}</span><span class="die">${diceSVG(r())}</span><span class="sum">…</span>`;
+    $('#diceres').innerHTML = `<span class="die">${diceSVG(1 + Math.floor(Math.random() * 6))}</span><span class="die">${diceSVG(1 + Math.floor(Math.random() * 6))}</span><span class="sum">…</span>`;
     if (++n >= 7) {
       clearInterval(iv);
-      const r2 = G.rollDice(game);
-      rolling = false;
-      if (!r2.ok) return flash(r2.err);
       renderAll();
       if (game.phase === 'discard') discardChain();
     }
   }, 70);
 }
+
+/* ---------------- sidebar ---------------- */
 
 const RES_NAMES = { wood: 'madera', brick: 'ladrillo', sheep: 'oveja', wheat: 'trigo', ore: 'mineral' };
 const resName = (r) => RES_NAMES[r];
@@ -204,18 +472,18 @@ function renderBank() {
 }
 
 function renderMe() {
-  const p = cur();
+  const p = mePlayer();
   $('#me').innerHTML = `
     <span class="hicon">${houseHTML(p.color, 34)}</span>
     <div>
-      <div class="menm">${p.name}</div>
+      <div class="menm">${session.online ? `${p.name} (vos)` : p.name}</div>
       <div class="mesub">🛣️ ${p.roads.length}/15 · 🏠 ${p.settlements.length}/5 · 🏛️ ${p.cities.length}/4</div>
     </div>
     <span class="pvp">${G.vp(p)} PV</span>`;
 }
 
 function renderHand() {
-  const p = cur();
+  const p = mePlayer();
   const held = G.RESOURCES.filter((r) => p.res[r] > 0);
   $('#hand').innerHTML = held.length
     ? held.map((r) =>
@@ -223,6 +491,8 @@ function renderHand() {
       ).join('')
     : `<p class="empty">Sin cartas 🃏</p>`;
 }
+
+const myTurn = () => !session.online || game.current === session.myId;
 
 function renderPieceButtons() {
   const box = $('#piecebtns');
@@ -232,10 +502,11 @@ function renderPieceButtons() {
     return;
   }
   if (game.phase === 'roll') {
-    box.innerHTML = `<button class="pbtn wide" disabled>🎲 Esperando tirada…</button>`;
+    box.innerHTML = session.online && !myTurn()
+      ? `<button class="pbtn wide" disabled>⏳ Turno de ${p.name}…</button>`
+      : `<button class="pbtn wide" disabled>🎲 Esperando tirada…</button>`;
     return;
   }
-  // main phase: square piece buttons, Colonist-style
   const afford = (cost) => G.RESOURCES.every((r) => p.res[r] >= (cost[r] || 0));
   const left = { road: 15 - p.roads.length, settlement: 5 - p.settlements.length, city: 4 - p.cities.length };
   const has = (k) => {
@@ -245,15 +516,15 @@ function renderPieceButtons() {
     return false;
   };
   const btn = (kind, icon, title) => {
-    const dis = !afford(G.COSTS[kind]) || !has(kind);
+    const dis = (!session.online || !myTurn() ? true : !afford(G.COSTS[kind]) || !has(kind));
     return `<button class="pbtn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" title="${title}" ${dis ? 'disabled' : ''}>${icon}<span class="n">×${left[kind]}</span></button>`;
   };
   box.innerHTML = `
-    <button class="pbtn" id="b-trade" title="Comerciar con el banco">🔄</button>
+    <button class="pbtn" id="b-trade" title="Comerciar con el banco" ${!myTurn() ? 'disabled' : ''}>🔄</button>
     ${btn('road', '🛣️', 'Construir camino — 1🧱 1🌲')}
     ${btn('settlement', '🏠', 'Fundar asentamiento — 1🧱 1🌲 1🐑 1🌾')}
     ${btn('city', '🏛️', 'Fundar ciudad — 3⛰️ 2🌾')}
-    <button class="pbtn wide" id="b-end">⏩ Terminar turno</button>`;
+    <button class="pbtn wide" id="b-end" ${!myTurn() ? 'disabled' : ''}>⏩ Terminar turno</button>`;
   box.querySelectorAll('button[data-k]').forEach((b) => {
     b.onclick = () => {
       const k = b.dataset.k;
@@ -263,6 +534,10 @@ function renderPieceButtons() {
   });
   $('#b-trade').onclick = showTradeModal;
   $('#b-end').onclick = () => {
+    if (session.online) {
+      act('endTurn').then((r) => { if (!r.ok) flash(r.err); });
+      return;
+    }
     const r = G.endTurn(game);
     if (!r.ok) return flash(r.err);
     mode = null;
@@ -273,21 +548,26 @@ function renderPieceButtons() {
 function renderPrompt() {
   const pr = $('#prompt');
   const p = cur();
+  const waiting = session.online && game.current !== session.myId;
   let msg = '';
   if (game.phase === 'setup') {
-    msg = mode?.kind === 'road'
+    const roadStep = session.online ? game.lastSetupVertex != null : mode?.kind === 'road';
+    msg = roadStep
       ? `🛣️ ${p.name}: elegí el camino junto a tu asentamiento`
       : `🏠 ${p.name}: elegí dónde fundar tu asentamiento`;
-  } else if (game.phase === 'roll') msg = `🎲 ${p.name}: tirá los dados`;
-  else if (game.phase === 'main') {
+    if (waiting) msg = `⏳ ${p.name} está colocando…`;
+  } else if (game.phase === 'roll') {
+    msg = waiting ? `⏳ ${p.name} está por tirar…` : `🎲 ${session.online ? 'Tocá el panel de dados' : p.name + ': tirá los dados'}`;
+  } else if (game.phase === 'main') {
     msg = mode ? `👉 ${p.name}: ${modeHint(mode)}` : `🔨 ${p.name}: construí, comerciá o terminá tu turno`;
-  } else if (game.phase === 'robber') msg = `🦹 ${p.name}: mové al ladrón`;
-  else if (game.phase === 'discard') msg = `🃏 Esperando descartes…`;
+    if (waiting) msg = `⏳ Turno de ${p.name}…`;
+  } else if (game.phase === 'robber') {
+    msg = waiting ? `🦹 ${p.name} mueve al ladrón…` : `🦹 ${p.name}: mové al ladrón`;
+  } else if (game.phase === 'discard') {
+    msg = `🃏 Esperando descartes…`;
+  }
   pr.textContent = msg;
 }
-
-const MODE_HINT = { settlement: 'elegí un lugar libre', city: 'elegí uno de tus asentamientos', road: 'elegí un borde libre' };
-const modeHint = (m) => (m.kind === 'robber' ? 'tocá un hexágono' : MODE_HINT[m.kind]);
 
 let flashTimer = null;
 function flash(msg) {
@@ -298,10 +578,14 @@ function flash(msg) {
   flashTimer = setTimeout(() => { pr.style.color = ''; renderPrompt(); }, 1800);
 }
 
+const MODE_HINT = { settlement: 'elegí un lugar libre', city: 'elegí uno de tus asentamientos', road: 'elegí un borde libre' };
+const modeHint = (m) => (m.kind === 'robber' ? 'tocá un hexágono' : MODE_HINT[m.kind]);
+
 /* ---------------- board clicks ---------------- */
 
 function onPick(kind, id) {
   if (!game) return;
+  if (session.online) return onlinePick(kind, id);
   const wasSetupRoad = game.phase === 'setup' && kind === 'edge' && mode?.kind === 'road';
   const r = pick(game, kind, id);
   if (!r.ok) { if (!r.silent) flash(r.err); return; }
@@ -336,6 +620,33 @@ function pick(g, kind, id) {
   return { ok: false, err: 'Elegí un destino válido', silent: !mode };
 }
 
+// online: pre-validación local (para resaltar), autoridad final en el host
+function onlinePick(kind, id) {
+  const g = game;
+  const me = session.myId;
+  if (g.phase === 'setup' && g.setupQueue[g.setupIdx] === me) {
+    const roadStep = g.lastSetupVertex != null;
+    if (kind === 'vertex' && !roadStep && G.settlementSpots(g, me, true).includes(id)) {
+      act('placeSetupSettlement', [id]).then((r) => { if (!r.ok) flash(r.err); });
+    } else if (kind === 'edge' && roadStep && G.setupRoadSpots(g, me).includes(id)) {
+      act('placeSetupRoad', [id]).then((r) => { if (!r.ok) flash(r.err); });
+    }
+    return;
+  }
+  if (g.phase === 'robber' && g.current === me && kind === 'hex') {
+    act('moveRobber', [id]).then((r) => { if (!r.ok) flash(r.err); });
+    return;
+  }
+  if (g.phase === 'main' && g.current === me && mode) {
+    const m = { settlement: ['buildSettlement', 'vertex'], city: ['buildCity', 'vertex'], road: ['buildRoad', 'edge'] }[mode.kind];
+    if (m && kind === m[1]) {
+      act(m[0], [id]).then((r) => {
+        if (r.ok) { mode = null; renderAll(); } else flash(r.err);
+      });
+    }
+  }
+}
+
 /* ---------------- modals ---------------- */
 
 function showModal(html) {
@@ -360,12 +671,14 @@ function showHandoff(player) {
 
 function showWin() {
   const p = game.players[game.winner];
-  showModal(`
+  const m = showModal(`
     <div class="wintrophy">🏆</div>
     <h2>¡Ganó <span style="color:${p.color}">${p.name}</span>!</h2>
     <p class="sub">${G.vp(p)} puntos de victoria en ${game.turn} turnos.</p>
-    <div class="btnrow"><button class="btn primary big" id="m-again">Jugar de nuevo</button></div>`)
-    .querySelector('#m-again').onclick = () => location.reload();
+    <div class="btnrow"><button class="btn primary big" id="m-again">${session.online ? 'Ok' : 'Jugar de nuevo'}</button></div>`);
+  m.querySelector('#m-again').onclick = () => {
+    if (session.online) { hideModal(); renderAll(); } else location.reload();
+  };
 }
 
 function discardChain() {
@@ -402,11 +715,20 @@ function discardChain() {
   };
   redraw();
   m.querySelector('#m-conf').onclick = () => {
-    const r = G.discard(game, pid, { ...sel });
-    if (!r.ok) return;
-    hideModal();
-    if (game.pendingDiscards.length) discardChain();
-    else renderAll(); // phase is now 'robber'
+    const commit = () => {
+      hideModal();
+      if (!session.online) {
+        if (game.pendingDiscards.length) discardChain();
+        else renderAll(); // phase is now 'robber'
+      }
+    };
+    if (session.online) {
+      act('discard', [pid, { ...sel }]).then((r) => { if (r.ok) commit(); else flash(r.err); });
+    } else {
+      const r = G.discard(game, pid, { ...sel });
+      if (!r.ok) return;
+      commit();
+    }
   };
 }
 
@@ -418,22 +740,25 @@ function showStealModal(victims) {
   const grid = m.querySelector('#vics');
   for (const pid of victims) {
     const p = game.players[pid];
-    const total = G.RESOURCES.reduce((s, r) => s + p.res[r], 0);
+    const total = totalCards(p);
     const b = document.createElement('button');
     b.className = 'pick';
     b.innerHTML = `${houseHTML(p.color, 20)} ${p.name} (${total})`;
     b.onclick = () => {
-      const r = G.stealFrom(game, pid);
-      hideModal();
-      renderAll();
-      if (r.ok) flash(`Robaste ${G.RES_EMOJI[r.card]}`);
+      const done = () => { hideModal(); renderAll(); };
+      if (session.online) {
+        act('stealFrom', [pid]).then((r) => { if (r.ok) { done(); flash(`Robaste una carta 👌`); } else flash(r.err); });
+      } else {
+        const r = G.stealFrom(game, pid);
+        if (r.ok) { done(); flash(`Robaste ${G.RES_EMOJI[r.card]}`); }
+      }
     };
     grid.appendChild(b);
   }
 }
 
 function showTradeModal() {
-  const p = cur();
+  const p = mePlayer();
   let give = null, get = null;
   const m = showModal(`
     <h2>🔁 Comercio con el banco</h2>
@@ -471,6 +796,12 @@ function showTradeModal() {
   redraw();
   m.querySelector('#m-cancel').onclick = hideModal;
   m.querySelector('#m-ok').onclick = () => {
+    if (session.online) {
+      act('bankTrade', [give, get]).then((r) => {
+        if (r.ok) { hideModal(); renderAll(); } else m.querySelector('#terr').textContent = r.err;
+      });
+      return;
+    }
     const r = G.bankTrade(game, give, get);
     if (!r.ok) { m.querySelector('#terr').textContent = r.err; return; }
     hideModal();
@@ -489,6 +820,25 @@ $('#diceres').addEventListener('click', () => doRoll());
 
 buildLobby();
 $('#play').onclick = startGame;
+$('#mk-room').onclick = createRoom;
+$('#join-room').onclick = joinRoomByCode;
+$('#copy-link').onclick = () => {
+  const url = `${location.origin}${location.pathname}?sala=${session.code}`;
+  navigator.clipboard?.writeText(url).then(() => {
+    $('#copy-link').textContent = '✅ Link copiado';
+    setTimeout(() => { $('#copy-link').textContent = '🔗 Copiar link de invitación'; }, 1500);
+  });
+};
+$('#start-online').onclick = startOnlineGame;
+
+// ?sala=CODE → prender la pestaña online con el código cargado
+const urlRoom = new URLSearchParams(location.search).get('sala');
+if (urlRoom) {
+  lobbyTab = 'online';
+  buildLobby();
+  $('#join-code').value = urlRoom.toUpperCase();
+  $('#my-name').focus();
+}
 
 // debug / test hook
 window.__hexland = {
@@ -497,4 +847,5 @@ window.__hexland = {
   refresh: () => renderAll(),
   setMode: (m) => { mode = m; renderAll(); },
   get mode() { return mode; },
+  session,
 };

@@ -50,6 +50,7 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null) {
     pendingDiscards: [],
     dice: null, turn: 1, winner: null,
     lastProduced: [], lastGain: {},
+    stealCandidates: [], // a quién puede robar quien movió al ladrón (deriva UI)
     robber: board.robber,
     log: [`⬡ Partida creada — semilla ${seed}`],
   };
@@ -138,6 +139,7 @@ export function placeSetupRoad(st, eid) {
   if (!setupRoadSpots(st, pid).includes(eid)) return err('Camino inválido');
   const p = st.players[pid];
   p.roads.push(eid);
+  st.lastSetupVertex = null; // el paso termina: el siguiente jugador coloca asentamiento
   log(st, `🛣️ ${p.name} construyó un camino.`);
   st.setupIdx++;
   if (st.setupIdx >= st.setupQueue.length) {
@@ -232,7 +234,8 @@ export function moveRobber(st, hid) {
   st.robber = hid;
   log(st, `🦹 ${st.players[st.current].name} movió al ladrón.`);
   st.phase = 'main';
-  return { ok: true, victims: stealVictims(st) };
+  st.stealCandidates = stealVictims(st);
+  return { ok: true, victims: st.stealCandidates };
 }
 
 export function stealVictims(st) {
@@ -254,6 +257,7 @@ export function stealFrom(st, victimPid) {
   const card = pool[Math.floor(st.rng() * pool.length)];
   victim.res[card]--; me.res[card]++;
   log(st, `🤏 ${me.name} le robó una carta a ${victim.name}.`);
+  st.stealCandidates = [];
   return { ok: true, card };
 }
 
@@ -335,6 +339,7 @@ export function endTurn(st) {
   if (st.current === 0) st.turn++;
   st.phase = 'roll';
   st.dice = null;
+  st.stealCandidates = [];
   log(st, `— Turno ${st.turn}: ${st.players[st.current].name} —`);
   return { ok: true, next: st.current };
 }

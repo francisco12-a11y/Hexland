@@ -373,3 +373,56 @@ test('tasas de puerto: 2:1 con puerto del recurso, 3:1 con puerto genérico, 4:1
   assert.equal(st.players[0].res.wood, before.w - 2);
   assert.equal(st.players[0].res.wheat, before.t + 1);
 });
+
+test('colocación: tras el camino de un jugador, el siguiente arranca por asentamiento (sin lastSetupVertex heredado)', () => {
+  const st = startGame(7); // startGame ya jugó todo el setup; armamos uno fresco
+  const st2 = G.newGame(['A', 'B'], 7);
+  // A coloca asentamiento + camino
+  const sA = G.settlementSpots(st2, 0, true)[0];
+  G.placeSetupSettlement(st2, sA);
+  assert.ok(st2.lastSetupVertex != null, 'habilita el paso camino');
+  G.placeSetupRoad(st2, G.setupRoadSpots(st2, 0)[0]);
+  assert.equal(st2.lastSetupVertex, null, 'se limpia al terminar el paso');
+  // B: sin asentamiento propio no hay caminos disponibles
+  assert.deepEqual(G.setupRoadSpots(st2, 1), []);
+  // y sus lugares de asentamiento son los normales (regla de distancia)
+  assert.ok(G.settlementSpots(st2, 1, true).length > 0);
+  // el setup completo de startGame es consistente: cada camino toca su asentamiento
+  for (const p of st.players) {
+    assert.equal(p.roads.length, 2);
+    assert.equal(p.settlements.length, 2);
+  }
+});
+
+test('ladrón: stealCandidates viaja en el estado y se limpia al robar (deriva UI online)', () => {
+  const st = startGame(7);
+  for (const p of st.players) G.RESOURCES.forEach((r) => (p.res[r] = 0));
+  st.players[1].res.ore = 3;
+  const hex = st.board.hexes.find(h => h.number === 12);
+  const libres = hex.vertices.filter(vid =>
+    !st.players.some(p => p.settlements.includes(vid) || p.cities.includes(vid)));
+  st.players[1].settlements.push(libres[0]);
+  st.players[0].res.wood = 9;
+  forceRoll(st, 7);
+  G.discard(st, 0, { wood: 4 });
+  G.moveRobber(st, hex.id);
+  assert.deepEqual(st.stealCandidates, [1]);
+  G.stealFrom(st, 1);
+  assert.deepEqual(st.stealCandidates, []);
+});
+
+test('el estado viaja por JSON sin perder lo que el render necesita', () => {
+  const st = startGame(7);
+  st.players[0].res.wood = 3;
+  forceRoll(st, 7);
+  const copy = JSON.parse(JSON.stringify(st));
+  // lo que render.js y main.js consumen tras el JSON (rng es función y se pierde: ok)
+  assert.equal(copy.phase, st.phase);
+  assert.equal(copy.players.length, st.players.length);
+  assert.ok(copy.board.hexes.length === 19 && copy.board.vertices.length === 54 && copy.board.ports.length === 9);
+  assert.ok(Array.isArray(copy.log) && copy.log.length > 0);
+  assert.deepEqual(copy.pendingDiscards, st.pendingDiscards);
+  assert.equal(copy.robber, st.robber);
+  assert.equal(copy.players[0].res.wood, 3);
+  assert.ok(copy.setupQueue.length === 6);
+});

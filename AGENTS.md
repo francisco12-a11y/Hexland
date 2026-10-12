@@ -31,7 +31,22 @@ src/main.js    orchestration: screens (lobby/game), click routing
                (SVG data-vid/data-eid/data-hid → graph ids → game actions),
                modals, hot-seat handoffs. Also owns UI-only state: `mode`,
                modals, `shownDice`.
+src/net.js     PeerJS wrapper (window.Peer from CDN): hostRoom/joinRoom.
 ```
+
+
+### Online mode (host-authoritative)
+
+`session` in main.js switches the whole UI. The HOST owns the state: clients
+send `{t:'act', kind, args}` envelopes, `hostApply` validates ownership of the
+turn and runs the same game.js function, then `broadcastState()` sends the full
+state (JSON-sanitized — it strips the `rng` function; clients never use it).
+Clients mirror the state in `applyRemoteState` and derive UI from state
+fields, not from action results — that's why the engine exposes
+`state.stealCandidates`, `state.pendingDiscards` and `state.lastSetupVertex`.
+In online mode each player sees their own hand (`session.myId`) and buttons
+enable only on their turn. During setup, the step (settlement vs road) derives
+from `state.lastSetupVertex != null`, not from local `mode`.
 
 Data flow: click → `main.onPick(kind, id)` → `game.js` action → `{ok}` →
 `renderAll()` (board + sidebar + dice all re-derived from state). The UI never
@@ -112,11 +127,8 @@ Keep improving toward that look; do not copy their assets.
 
 ## Roadmap (in order)
 
-1. **Online rooms via PeerJS**: host-authoritative — the host runs `game.js`,
-   clients send action requests, host validates with the same functions and
-   broadcasts full state JSON (~KBs). `render.js` renders remote state
-   unchanged. The engine being DOM-free is what makes this possible; keep it
-   that way.
+1. ~~Online rooms via PeerJS~~ (done, v0.2) — next: TURN fallback for strict
+   CGNAT networks, state filtering (don't leak other hands to clients),
+   host migration / reconnect.
 2. Player-to-player trading (offers/counteroffers).
 3. Dev cards, knight, largest army, longest road → then `WIN_VP = 10`.
-4. Host migration / reconnect.
