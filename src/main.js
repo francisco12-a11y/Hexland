@@ -8,7 +8,7 @@ import * as G from './game.js';
 import * as Net from './net.js';
 
 let game = null;
-let mode = null; // {kind:'settlement'|'city'|'road'|'robber', setup:bool}
+let mode = null; // {kind:'settlement'|'city'|'road'|'robber'|'counter', setup:bool}
 
 const session = {
   online: false,
@@ -23,6 +23,9 @@ const session = {
 let lobbyTab = 'local';
 let mapPick = 'clasico';
 let vpTarget = 10;
+let knightPick = false;      // checkbox del lobby
+let knightTargeting = false; // colocando un caballero en un camino rival
+let counterEdge = null;      // contraataque: disputa elegida, falta el target
 let tradeMode = null; // {giveSel:Set(indices de mano), getSel:[res]} — oferta en el footer
 const expandHand = (p) => {
   const hand = [];
@@ -71,6 +74,11 @@ function buildLobby() {
     b.classList.toggle('on', b.dataset.map === mapPick);
     b.onclick = () => { mapPick = b.dataset.map; buildLobby(); };
   });
+  const knightCheck = $('#knightcheck');
+  if (knightCheck) {
+    knightCheck.checked = knightPick;
+    knightCheck.onchange = () => { knightPick = knightCheck.checked; };
+  }
   const vpRange = $('#vp-range');
   if (vpRange) {
     vpRange.value = vpTarget;
@@ -125,7 +133,7 @@ function startGame() {
   const names = [...$('#names').querySelectorAll('input')].map((i) => i.value.trim());
   const seedRaw = $('#seed').value.trim();
   const seed = seedRaw ? Math.abs(parseInt(seedRaw, 10)) || 1 : undefined;
-  game = G.newGame(names, seed, colorPick.slice(), mapPick, vpTarget);
+  game = G.newGame(names, seed, colorPick.slice(), mapPick, vpTarget, knightPick);
   mode = { kind: 'settlement', setup: true };
   shownDice = null;
   lastDiceKey = null;
@@ -286,6 +294,9 @@ const HOST_ACTIONS = {
   proposeTrade: (st, a) => G.proposeTrade(st, a[0], a[1]),
   respondTrade: (st, a) => G.respondTrade(st, a[0], a[1]),
   cancelTrade: (st) => G.cancelTrade(st),
+  placeKnight: (st, a) => G.placeKnight(st, a[0]),
+  defendKnight: (st, a) => G.defendKnight(st, a[0]),
+  counterAttack: (st, a) => G.counterAttack(st, a[0], a[1]),
   endTurn: (st) => G.endTurn(st),
 };
 
@@ -372,7 +383,7 @@ function afterHostApply() {
 function startOnlineGame() {
   const names = session.lobby.map((l) => l.name);
   const seed = Math.floor(Math.random() * 2 ** 31);
-  game = G.newGame(names, seed, null, mapPick, vpTarget);
+  game = G.newGame(names, seed, null, mapPick, vpTarget, knightPick);
   session.myId = 0;
   session.started = true;
   mode = { kind: 'settlement', setup: true };
@@ -404,6 +415,34 @@ function targetsForMode() {
     if (mode?.kind === 'city') G.citySpots(game, game.current).forEach((v) => t.vertices.add(v));
     // los caminos gratis van solos (sin mode): el estado manda, anda online
     if (mode?.kind === 'road' || game.freeRoads > 0) G.roadSpots(game, game.current).forEach((e) => t.edges.add(e));
+    // caballeros: caminos rivales que tocan mi red
+    if (game.knightsMode && knightTargeting) {
+      const myNet = G.connectedSet(game, game.current);
+      for (const q of game.players) {
+        if (q.id === game.current) continue;
+        for (const eid of q.roads) {
+          const e = game.board.edges[eid];
+          if (myNet.has(e.a) || myNet.has(e.b)) t.edges.add(eid);
+        }
+      }
+    }
+    // contraataque: caminos del atacante pegados a la disputa
+    if (mode?.kind === 'counter') {
+      const d = game.disputes.find((x) => x.edge === mode.edge);
+      if (d) {
+        const e = game.board.edges[d.edge];
+        for (const eid of game.players[d.attacker].roads) {
+          const t2 = game.board.edges[eid];
+          if ([e.a, e.b].some((v) => v === t2.a || v === t2.b)) t.edges.add(eid);
+        }
+      }
+    }
+    // disputas que me tocan defender: targets automáticos
+    if (game.knightsMode) {
+      for (const d of game.disputes || []) {
+        if (d.defender === game.current) t.edges.add(d.edge);
+      }
+    }
   } else if (game.phase === 'robber') {
     if (session.online && game.current !== session.myId) return t;
     G.robberSpots(game).forEach((h) => t.hexes.add(h));
@@ -613,7 +652,7 @@ function renderBank() {
 
 function renderMe() {
   const p = mePlayer();
-  const extra = `${p.knights ? ` · ⚔️ ${p.knights}` : ''}${p.devs?.length ? ` · 🃏 ${p.devs.length}` : ''}`;
+  const extra = `${p.knights ? ` · ⚔️ ${p.knights}` : ''}${p.devs?.length ? ` · 🃏 ${p.devs.length}` : ''}${game.knightsMode ? ` · 🐴 ${p.knightStock}` : ''}`;
   $('#me').innerHTML = `
     <span class="hicon">${houseHTML(p.color, 34)}</span>
     <div>
@@ -733,6 +772,7 @@ function renderPieceButtons() {
   box.innerHTML = `
     <button class="pbtn" id="b-trade" title="Comerciar con el banco" ${!myTurn() ? 'disabled' : ''}>🔄</button>
     <button class="pbtn" id="b-ptrade" title="Proponer intercambio a los demás" ${!myTurn() ? 'disabled' : ''}>🤝</button>
+    ${game.knightsMode ? `<button class="pbtn" id="b-knight" title="Disputar un camino rival con un caballero (2🐑 1🌾)" ${!myTurn() ? 'disabled' : ''}>🐴</button>` : ''}
     ${btn('road', '🛣️', 'Construir camino — 1🧱 1🌲')}
     ${btn('settlement', '🏠', 'Fundar asentamiento — 1🧱 1🌲 1🐑 1🌾')}
     ${btn('city', '🏛️', 'Fundar ciudad — 3⛰️ 2🌾')}
@@ -749,6 +789,13 @@ function renderPieceButtons() {
   $('#b-ptrade').onclick = () => {
     if (tradeMode) return exitTradeMode();
     tradeMode = { giveSel: new Set(), getSel: [] };
+    renderAll();
+  };
+  const bk = document.querySelector('#b-knight');
+  if (bk) bk.onclick = () => {
+    if (knightTargeting) { knightTargeting = false; renderAll(); return; }
+    if (tradeMode) exitTradeMode();
+    knightTargeting = true;
     renderAll();
   };
   $('#b-dev').onclick = () => {
@@ -788,6 +835,10 @@ function renderPrompt() {
   } else if (game.phase === 'main') {
     if (game.tradeOffer) {
       msg = `🤝 ${game.players[game.tradeOffer.from].name} ofrece un intercambio: ¿alguien acepta?`;
+    } else if (game.knightsMode && (game.disputes || []).some((d) => d.defender === game.current)) {
+      msg = `⚔️ ${p.name}: tu camino está en disputa — defendelo o lo perdés`;
+    } else if (game.knightsMode && (game.disputes || []).some((d) => d.attacker === game.current)) {
+      msg = `🐴 ${p.name}: esperando la respuesta a tu disputa`;
     } else if (game.pendingGold?.length) {
       const gp = game.players[game.pendingGold[0].pid];
       msg = `🪙 ${gp.name}: elegí tu recurso del oro`;
@@ -825,10 +876,19 @@ const modeHint = (m) => (m.kind === 'robber' ? 'tocá un hexágono' : MODE_HINT[
 
 function onPick(kind, id) {
   if (!game) return;
-  // click en el mar: cancela el modo de construcción (fuera del setup)
+  // click en el mar: cancela modos activos (fuera del setup)
   if (kind === 'sea') {
     if (mode && game.phase === 'main') { mode = null; renderAll(); }
+    if (knightTargeting) { knightTargeting = false; renderAll(); }
+    if (mode?.kind === 'counter') { mode = null; renderAll(); }
     return;
+  }
+  // caballeros: clicks sobre caminos (disputar / defender / contraatacar)
+  if (kind === 'edge' && game.knightsMode && game.phase === 'main' && myTurn()) {
+    const disputaPropia = (game.disputes || []).find((x) => x.edge === id && x.defender === game.current);
+    if (disputaPropia && !mode && !knightTargeting) { showKnightResponse(id); return; }
+    if (knightTargeting) { knightTargeting = false; knightFlow(id); return; }
+    if (mode?.kind === 'counter') { const edge = mode.edge; mode = null; counterFlow(edge, id); return; }
   }
   if (session.online) return onlinePick(kind, id);
   const wasSetupRoad = game.phase === 'setup' && kind === 'edge' && mode?.kind === 'road';
@@ -957,6 +1017,50 @@ function discardChain() {
       else { const r = G.discard(game, pid, sel); if (r.ok) commit(); else flash(r.err); }
     },
   });
+}
+
+// ---------- caballeros: disputas de caminos ----------
+
+function knightFlow(edge) {
+  const done = (r) => { renderAll(); if (!r.ok) flash(r.err); };
+  if (session.online) act('placeKnight', [edge]).then(done);
+  else done(G.placeKnight(game, edge));
+}
+
+function counterFlow(edge, target) {
+  const done = (r) => { renderAll(); if (!r.ok) flash(r.err); else flash('⚔️ ¡Contraataque exitoso!'); };
+  if (session.online) act('counterAttack', [edge, target]).then(done);
+  else done(G.counterAttack(game, edge, target));
+}
+
+// modal de respuesta del defensor: defender, contraatacar o pasar
+function showKnightResponse(edge) {
+  const d = (game.disputes || []).find((x) => x.edge === edge);
+  if (!d) return;
+  const attacker = game.players[d.attacker];
+  const me = game.players[game.current];
+  const puedeDef = me.knightStock >= 1;
+  const puedeContra = me.knightStock >= 2;
+  const m = showModal(`
+    <h2>⚔️ Tu camino está en disputa</h2>
+    <p class="sub"><b>${attacker.name}</b> lo desafió con un caballero.<br />
+    Si no lo defendés al terminar tu turno, <b>lo perdés</b>.</p>
+    <div class="btnrow" style="flex-direction:column;align-items:stretch">
+      <button class="btn primary big" id="k-def" ${puedeDef ? '' : 'disabled'}>🛡️ Defender — 1 caballero (2🐑 1🌾)</button>
+      <button class="btn big" id="k-counter" ${puedeContra ? '' : 'disabled'}>⚔️ Contraatacar — 2 caballeros (4🐑 2🌾)<br /><small>defendés y destruís un camino suyo pegado a la disputa</small></button>
+      <button class="btn" id="k-pass">No defender (perdés el camino)</button>
+    </div>`);
+  const respond = (fn) => { hideModal(); fn(); renderAll(); };
+  m.querySelector('#k-def').onclick = () => respond(() => {
+    const r = session.online ? null : G.defendKnight(game, edge);
+    if (session.online) act('defendKnight', [edge]).then((x) => { if (!x.ok) flash(x.err); });
+    else if (!r.ok) flash(r.err);
+  });
+  m.querySelector('#k-counter').onclick = () => respond(() => {
+    mode = { kind: 'counter', edge };
+    flash('⚔️ Tocá el camino de ' + attacker.name + ' que querés destruir');
+  });
+  m.querySelector('#k-pass').onclick = () => respond(() => {});
 }
 
 // selector de cartas de la mano: muestra la mano como cartas tocables

@@ -31,6 +31,42 @@ function forceRoll(st, sum) {
 
 const totals = (st) => st.players.map((p) => G.RESOURCES.reduce((s, r) => s + p.res[r], 0));
 
+// extiende la red de pid hasta tocar un camino de rivalPid (paga recursos);
+// devuelve el primer camino rival que toca la red, o null
+function conectarCon(st, pid, rivalPid) {
+  let net = G.connectedSet(st, pid);
+  const rival = st.players[rivalPid];
+  const mid = (eid) => {
+    const e = st.board.edges[eid];
+    const a = st.board.vertices[e.a], b = st.board.vertices[e.b];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+  const found = () => rival.roads.find((eid) => {
+    const e = st.board.edges[eid];
+    return net.has(e.a) || net.has(e.b);
+  });
+  // extiende siempre hacia el rival (el spot más cercano a sus caminos)
+  for (let i = 0; i < 40; i++) {
+    const f = found();
+    if (f != null) return f;
+    const spots = G.roadSpots(st, pid);
+    if (!spots.length) return null;
+    let best = null, bestD = Infinity;
+    for (const eid of spots) {
+      const m = mid(eid);
+      for (const rid of rival.roads) {
+        const rm = mid(rid);
+        const d = (m.x - rm.x) ** 2 + (m.y - rm.y) ** 2;
+        if (d < bestD) { bestD = d; best = eid; }
+      }
+    }
+    if (best == null) return null;
+    G.buildRoad(st, best);
+    net = G.connectedSet(st, pid);
+  }
+  return null;
+}
+
 // ganancia esperada según las reglas de Catan, calculada independiente del motor
 function expectedGains(st, sum) {
   const TERRAIN = { hills: 'brick', forest: 'wood', mountains: 'ore', fields: 'wheat', pasture: 'sheep' };
@@ -1006,4 +1042,92 @@ test('victoria con puntos configurables (slider 6-12)', () => {
   }
   assert.ok(won, 'a 6 PV se gana antes');
   assert.ok(G.vp(p) >= 6);
+});
+
+// ---------- modo caballeros ----------
+
+test('caballeros: disputar un camino rival que toca tu red (2🐑 1🌾)', () => {
+  const st = startGame(7);
+  st.knightsMode = true;
+  st.phase = 'main';
+  const p0 = st.players[0], p1 = st.players[1];
+  for (const q of st.players) for (const r of G.RESOURCES) q.res[r] = 20;
+  const rivalEdge = conectarCon(st, 0, 1);
+  assert.ok(rivalEdge != null, 'p0 puede extender su red hasta p1');
+  const stock0 = p0.knightStock, trigo0 = p0.res.wheat, ovejas0 = p0.res.sheep;
+  assert.ok(G.placeKnight(st, rivalEdge).ok);
+  assert.equal(p0.knightStock, stock0 - 1);
+  assert.equal(p0.res.sheep, ovejas0 - 2);
+  assert.equal(p0.res.wheat, trigo0 - 1);
+  assert.equal(st.disputes.length, 1);
+  assert.equal(st.disputes[0].edge, rivalEdge);
+  assert.equal(st.disputes[0].defender, 1);
+  assert.equal(st.knightPieces.length, 1);
+  assert.equal(G.placeKnight(st, rivalEdge).ok, false, 'ya está en disputa');
+  assert.equal(G.placeKnight(st, p0.roads[0]).ok, false, 'camino propio no');
+});
+
+test('caballeros: defender salva el camino; se puede volver a disputar', () => {
+  const st = startGame(7);
+  st.knightsMode = true;
+  st.phase = 'main';
+  const p0 = st.players[0], p1 = st.players[1];
+  for (const q of st.players) for (const r of G.RESOURCES) q.res[r] = 20;
+  const rivalEdge = conectarCon(st, 0, 1);
+  assert.ok(G.placeKnight(st, rivalEdge).ok);
+  assert.ok(G.endTurn(st).ok);
+  assert.equal(st.disputes.length, 1, 'la disputa espera al defensor');
+  st.phase = 'main';
+  assert.ok(G.defendKnight(st, rivalEdge).ok);
+  assert.equal(st.disputes.length, 0, 'disputa resuelta');
+  assert.ok(p1.roads.includes(rivalEdge), 'el camino se salvó');
+  assert.equal(st.knightPieces.length, 2, 'guarnición: los dos caballeros');
+  st.current = 0;
+  assert.ok(G.placeKnight(st, rivalEdge).ok, 'se puede volver a disputar');
+});
+
+test('caballeros: sin defensa, el camino se pierde al terminar el turno', () => {
+  const st = startGame(7);
+  st.knightsMode = true;
+  st.phase = 'main';
+  const p0 = st.players[0], p1 = st.players[1];
+  for (const q of st.players) for (const r of G.RESOURCES) q.res[r] = 20;
+  const rivalEdge = conectarCon(st, 0, 1);
+  assert.ok(G.placeKnight(st, rivalEdge).ok);
+  assert.ok(G.endTurn(st).ok); // turno del defensor
+  st.phase = 'main';
+  assert.ok(G.endTurn(st).ok); // no defiende
+  assert.equal(p1.roads.includes(rivalEdge), false, 'camino removido');
+  assert.equal(st.disputes.length, 0);
+  assert.equal(st.knightPieces.length, 0, 'el caballero atacante se retiró');
+  assert.equal(p0.knightStock, 5, 'su caballero volvió al stock del atacante');
+  assert.equal(st.longestRoad === null || typeof st.longestRoad === 'number', true);
+});
+
+test('caballeros: contraataque destruye un camino del atacante pegado a la disputa', () => {
+  const st = startGame(7);
+  st.knightsMode = true;
+  st.phase = 'main';
+  const p0 = st.players[0], p1 = st.players[1];
+  for (const q of st.players) for (const r of G.RESOURCES) q.res[r] = 20;
+  const rivalEdge = conectarCon(st, 0, 1);
+  assert.ok(G.placeKnight(st, rivalEdge).ok);
+  assert.ok(G.endTurn(st).ok);
+  st.phase = 'main';
+  const e = st.board.edges[rivalEdge];
+  const pegados = p0.roads.filter((eid) => {
+    const t = st.board.edges[eid];
+    return [e.a, e.b].some((v) => v === t.a || v === t.b);
+  });
+  assert.ok(pegados.length > 0, 'p0 tiene caminos pegados a la disputa');
+  const noPegado = p0.roads.find((eid) => !pegados.includes(eid));
+  if (noPegado != null) assert.equal(G.counterAttack(st, rivalEdge, noPegado).ok, false, 'tiene que estar pegado');
+  const sheepP1 = p1.res.sheep, wheatP1 = p1.res.wheat;
+  const roadsP0 = p0.roads.length;
+  assert.ok(G.counterAttack(st, rivalEdge, pegados[0]).ok);
+  assert.equal(p0.roads.length, roadsP0 - 1, 'camino del atacante destruido');
+  assert.equal(p1.res.sheep, sheepP1 - 4, 'el contraataque paga 4 ovejas (el defensor)');
+  assert.equal(p1.res.wheat, wheatP1 - 2, 'el contraataque paga 2 trigos');
+  assert.equal(st.disputes.length, 0, 'disputa resuelta');
+  assert.ok(G.endTurn(st).ok);
 });

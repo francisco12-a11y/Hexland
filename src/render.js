@@ -453,6 +453,29 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
+  // caballeros apostados en caminos + marcador de disputa
+  if (st.knightPieces && st.knightPieces.length) {
+    const gK = el('g', { 'pointer-events': 'none', filter: 'url(#f-piece)' }, svg);
+    const perEdge = {};
+    for (const k of st.knightPieces) {
+      const e = st.board.edges[k.edge];
+      const mx = (st.board.vertices[e.a].x + st.board.vertices[e.b].x) / 2;
+      const my = (st.board.vertices[e.a].y + st.board.vertices[e.b].y) / 2;
+      const n = perEdge[k.edge] = (perEdge[k.edge] || 0) + 1;
+      const g = el('g', { transform: `translate(${mx.toFixed(1)} ${(my - (n - 1) * 18).toFixed(1)})` }, gK);
+      el('circle', { r: 11, fill: st.players[k.owner].color, stroke: '#f8f8f2', 'stroke-width': 2 }, g);
+      el('text', { y: 4.5, 'text-anchor': 'middle', 'font-size': 12 }, g).textContent = '🐴';
+    }
+  }
+  if (st.disputes && st.disputes.length) {
+    for (const d of st.disputes) {
+      const e = st.board.edges[d.edge];
+      const mx = (st.board.vertices[e.a].x + st.board.vertices[e.b].x) / 2;
+      const my = (st.board.vertices[e.a].y + st.board.vertices[e.b].y) / 2;
+      el('text', { x: mx, y: my - 16, 'font-size': 16, 'text-anchor': 'middle', class: 'pulse' }, svg).textContent = '⚔️';
+    }
+  }
+
   // interactive targets on top
   const gT = el('g', {}, svg);
   for (const hid of targets.hexes || []) {

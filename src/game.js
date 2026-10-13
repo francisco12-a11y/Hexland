@@ -12,7 +12,9 @@ export const COSTS = {
   settlement: { brick: 1, wood: 1, sheep: 1, wheat: 1 },
   city: { ore: 3, wheat: 2 },
   dev: { sheep: 1, wheat: 1, ore: 1 },
+  knight: { sheep: 2, wheat: 1 },
 };
+export const COSTS_COUNTER = { sheep: 4, wheat: 2 }; // contraataque: 2 caballeros
 export const COST_LABEL = {
   road: '1🧱 1🌲',
   settlement: '1🧱 1🌲 1🐑 1🌾',
@@ -46,13 +48,14 @@ const totalCards = (p) => RESOURCES.reduce((s, r) => s + p.res[r], 0);
 const canPay = (p, cost) => Object.entries(cost).every(([r, k]) => p.res[r] >= k);
 const pay = (p, cost) => Object.entries(cost).forEach(([r, k]) => (p.res[r] -= k));
 
-export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map = 'clasico', winVp = WIN_VP) {
+export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map = 'clasico', winVp = WIN_VP, knightsMode = false) {
   const board = generateBoard(seed, map);
   const players = names.map((name, i) => ({
     id: i, name: name || `Jugador ${i + 1}`, color: PLAYER_COLORS[colors?.[i] ?? i],
     res: { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 },
     roads: [], settlements: [], cities: [],
     devs: [], knights: 0, hasLargestArmy: false, hasLongestRoad: false,
+    knightStock: 5,
   }));
   const n = players.length;
   const keys = [...Array(n).keys()];
@@ -72,6 +75,10 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map =
     pendingGold: [],     // oro: [{pid, count}] — elecciones de recurso pendientes
     tradeOffer: null,    // comercio abierto: {id, from, give, get} esperando aceptación
     tradeSeq: 0,
+    knightsMode,         // regla de caballeros (disputas de caminos)
+    knightPieces: [],    // caballeros en el tablero: {id, edge, owner}
+    disputes: [],        // disputas pendientes: {edge, attacker, defender, pieceId}
+    knightSeq: 0,
     lastRollWas7: false, // regla de casa: no permite dos 7 seguidos
     devPlayed: false,    // una sola carta de desarrollo por turno
     freeRoads: 0,        // caminos gratis pendientes (construcción de caminos)
@@ -128,7 +135,7 @@ export const vp = (p) =>
 
 // vértices conectados a la red del jugador: sus edificios + los extremos de
 // sus caminos. Todo lo que construya tiene que tocar esta red.
-function connectedSet(st, pid) {
+export const connectedSet = (st, pid) => {
   const p = st.players[pid];
   const s = new Set([...p.settlements, ...p.cities]);
   for (const eid of p.roads) {
@@ -682,10 +689,95 @@ export function takeGold(st, res) {
   return OK;
 }
 
+// ---------- caballeros: disputas de caminos ----------
+
+const roadOwner = (st, edge) => {
+  const i = st.players.findIndex((p) => p.roads.includes(edge));
+  return i === -1 ? null : i;
+};
+
+// coloca un caballero sobre un camino RIVAL que toca tu red → queda en disputa
+export function placeKnight(st, edge) {
+  if (!st.knightsMode) return err('Este modo no tiene caballeros');
+  if (st.phase !== 'main') return err('Solo en tu turno principal');
+  const me = st.current, p = st.players[me];
+  if (p.knightStock <= 0) return err('No te quedan caballeros');
+  const owner = roadOwner(st, edge);
+  if (owner == null || owner === me) return err('Elegí un camino rival');
+  const e = st.board.edges[edge];
+  const myNet = connectedSet(st, me);
+  if (!myNet.has(e.a) && !myNet.has(e.b)) return err('El camino rival tiene que tocar tu red');
+  if (st.disputes.some((d) => d.edge === edge)) return err('Ese camino ya está en disputa');
+  if (!canPay(p, COSTS.knight)) return err('Te faltan recursos (2🐑 1🌾)');
+  pay(p, COSTS.knight);
+  p.knightStock--;
+  const piece = { id: ++st.knightSeq, edge, owner: me };
+  st.knightPieces.push(piece);
+  st.disputes.push({ edge, attacker: me, defender: owner, pieceId: piece.id });
+  log(st, `🐴 ${p.name} disputa un camino de ${st.players[owner].name}.`);
+  return OK;
+}
+
+// el dueño defiende con un caballero: el camino se salva
+export function defendKnight(st, edge) {
+  if (st.phase !== 'main') return err('Solo en tu turno principal');
+  const d = st.disputes.find((x) => x.edge === edge);
+  if (!d || d.defender !== st.current) return err('Esa disputa no te corresponde');
+  const p = st.players[st.current];
+  if (p.knightStock <= 0) return err('No te quedan caballeros');
+  if (!canPay(p, COSTS.knight)) return err('Te faltan recursos (2🐑 1🌾)');
+  pay(p, COSTS.knight);
+  p.knightStock--;
+  st.knightPieces.push({ id: ++st.knightSeq, edge, owner: st.current });
+  st.disputes = st.disputes.filter((x) => x !== d);
+  log(st, `🛡️ ${p.name} defendió su camino.`);
+  return OK;
+}
+
+// contraataque: 2 caballeros — se defiende la disputa y se destruye al instante
+// un camino del atacante pegado a la disputa (sin ventana de respuesta)
+export function counterAttack(st, edge, targetEdge) {
+  if (st.phase !== 'main') return err('Solo en tu turno principal');
+  const d = st.disputes.find((x) => x.edge === edge);
+  if (!d || d.defender !== st.current) return err('Esa disputa no te corresponde');
+  const p = st.players[st.current];
+  if (p.knightStock < 2) return err('Necesitás 2 caballeros');
+  if (!canPay(p, COSTS_COUNTER)) return err('Te faltan recursos (4🐑 2🌾)');
+  const attacker = st.players[d.attacker];
+  if (!attacker.roads.includes(targetEdge)) return err('Ese camino no es del atacante');
+  const e = st.board.edges[edge], t = st.board.edges[targetEdge];
+  const pegados = [e.a, e.b].some((v) => v === t.a || v === t.b);
+  if (!pegados) return err('El camino tiene que estar pegado a la disputa');
+  pay(p, COSTS_COUNTER);
+  p.knightStock -= 2;
+  attacker.roads = attacker.roads.filter((x) => x !== targetEdge);
+  attacker.knightStock++; // su caballero de la disputa se retira
+  st.knightPieces = st.knightPieces.filter((k) => !(k.edge === d.edge && k.owner === d.attacker));
+  st.disputes = st.disputes.filter((x) => x !== d);
+  log(st, `⚔️ ${p.name} contraatacó y destruyó un camino de ${attacker.name}.`);
+  refreshLongestRoad(st);
+  return OK;
+}
+
+// al terminar el turno del defensor sin responder: pierde el camino
+function resolveExpiredDisputes(st) {
+  for (const d of st.disputes.filter((x) => x.defender === st.current)) {
+    const owner = st.players[d.defender];
+    owner.roads = owner.roads.filter((x) => x !== d.edge);
+    const attacker = st.players[d.attacker];
+    attacker.knightStock++; // su caballero se retira
+    st.knightPieces = st.knightPieces.filter((k) => !(k.edge === d.edge && k.owner === d.attacker));
+    st.disputes = st.disputes.filter((x) => x !== d);
+    log(st, `⚔️ ${owner.name} no defendió: perdió un camino.`);
+  }
+  refreshLongestRoad(st);
+}
+
 export function endTurn(st) {
   if (st.phase !== 'main') return err('Terminá lo pendiente antes');
   if (st.pendingGold.length) return err('Cobrá el oro antes de terminar el turno');
   if (st.tradeOffer) return err('Esperá la respuesta al intercambio');
+  resolveExpiredDisputes(st); // el defensor que no respondió, pierde el camino
   st.current = (st.current + 1) % st.players.length;
   if (st.current === 0) st.turn++;
   st.phase = 'roll';
