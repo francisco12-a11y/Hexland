@@ -7,6 +7,14 @@ import { renderBoard } from './render.js';
 import * as G from './game.js';
 import * as Net from './net.js';
 
+// precarga de tiles: sin esto, los hexes recién revelados tardaban en mostrar
+// su terreno (el navegador bajaba la imagen recién al necesitarla)
+for (const [t, v] of [['desert', 3], ['fields', 3], ['forest', 3], ['hills', 3],
+  ['mountains', 3], ['pasture', 3], ['gold', 3], ['fog', 3], ['water', 1], ['sand', 1]]) {
+  const img = new Image();
+  img.src = `tiles/${t}.png?v=${v}`;
+}
+
 let game = null;
 let mode = null; // {kind:'settlement'|'city'|'road'|'robber'|'counter', setup:bool}
 
@@ -471,6 +479,11 @@ function renderTradeBar() {
     const minis = pedidas.map((r, i) =>
       `<button class="rescard ${r} tb-mini tb-out" data-i="${i}" title="tocá para sacar">${G.RES_EMOJI[r]}</button>`).join('')
       || '<em class="tb-empty">tocá los recursos</em>';
+    const give = giveFromSel(p, tradeMode.giveSel);
+    const entries = Object.entries(give);
+    const mismoRecurso = entries.length === 1 ? entries[0][0] : null;
+    const rate = mismoRecurso ? G.tradeRate(game, p.id, mismoRecurso) : null;
+    const bancoOk = !!mismoRecurso && totalGive === rate && totalGet === 1;
     bar.innerHTML = `
       <div class="tb-row">
         <span class="tb-label">Das</span>
@@ -484,7 +497,8 @@ function renderTradeBar() {
       </div>
       <div class="tb-row tb-actions">
         <button class="btn" id="tb-cancel">Cancelar</button>
-        <button class="btn primary" id="tb-ok" ${totalGive === 0 || totalGet === 0 ? 'disabled' : ''}>Proponer 🤝</button>
+        <button class="btn" id="tb-bank" ${bancoOk ? '' : 'disabled'} title="Das ${rate ?? '—'}× de un mismo recurso (según tus puertos) y pedís 1 carta">🏦 Banco</button>
+        <button class="btn primary" id="tb-ok" ${totalGive === 0 || totalGet === 0 ? 'disabled' : ''}>🤝 Rivales</button>
       </div>`;
     bar.querySelectorAll('.tb-src').forEach((b) => {
       b.onclick = () => {
@@ -501,6 +515,14 @@ function renderTradeBar() {
       };
     });
     bar.querySelector('#tb-cancel').onclick = exitTradeMode;
+    bar.querySelector('#tb-bank').onclick = () => {
+      const res = mismoRecurso;
+      const getRes = pedidas[0];
+      tradeMode = null;
+      const done = (res2) => { if (!res2.ok) return flash(res2.err); renderAll(); flash(`🏦 Cambio hecho: +1 ${G.RES_EMOJI[getRes]}`); };
+      if (session.online) act('bankTrade', [res, getRes]).then(done);
+      else done(G.bankTrade(game, res, getRes));
+    };
     bar.querySelector('#tb-ok').onclick = () => {
       const give = giveFromSel(p, tradeMode.giveSel);
       const get = {};
@@ -770,8 +792,7 @@ function renderPieceButtons() {
   const devLeft = game.devDeck.length;
   const devDis = !myTurn() || !afford(G.COSTS.dev) || devLeft === 0;
   box.innerHTML = `
-    <button class="pbtn" id="b-trade" title="Comerciar con el banco" ${!myTurn() ? 'disabled' : ''}>🔄</button>
-    <button class="pbtn" id="b-ptrade" title="Proponer intercambio a los demás" ${!myTurn() ? 'disabled' : ''}>🤝</button>
+    <button class="pbtn" id="b-ptrade" title="Comerciar: con rivales o con el banco" ${!myTurn() ? 'disabled' : ''}>🤝</button>
     ${game.knightsMode ? `<button class="pbtn" id="b-knight" title="Disputar un camino rival con un caballero (2🐑 1🌾)" ${!myTurn() ? 'disabled' : ''}>🐴</button>` : ''}
     ${btn('road', '🛣️', 'Construir camino — 1🧱 1🌲')}
     ${btn('settlement', '🏠', 'Fundar asentamiento — 1🧱 1🌲 1🐑 1🌾')}
@@ -785,7 +806,6 @@ function renderPieceButtons() {
       renderAll();
     };
   });
-  $('#b-trade').onclick = showTradeModal;
   $('#b-ptrade').onclick = () => {
     if (tradeMode) return exitTradeMode();
     tradeMode = { giveSel: new Set(), getSel: [] };
@@ -1266,69 +1286,6 @@ function showStealModal(victims) {  const m = showModal(`
     };
     grid.appendChild(b);
   }
-}
-
-function showTradeModal() {
-  const p = mePlayer();
-  // paso 1: elegí el recurso a dar (la tasa depende de tus puertos)
-  const m = showModal(`
-    <h2>🔁 Comercio con el banco</h2>
-    <p class="sub">Elegí qué dar: tocás las cartas de tu mano después.</p>
-    <div class="pickgrid" id="bgive"></div>
-    <div class="btnrow"><button class="btn" id="b-cancel">Cerrar</button></div>`);
-  const grid = m.querySelector('#bgive');
-  for (const r of G.RESOURCES) {
-    const rate = G.tradeRate(game, p.id, r);
-    const b = document.createElement('button');
-    b.className = 'pick';
-    b.innerHTML = `${G.RES_EMOJI[r]} ×${rate}<small style="display:block;font-size:11px;color:var(--muted)">tenés ${p.res[r]}</small>`;
-    b.disabled = p.res[r] < rate;
-    b.onclick = () => pickGiveForBank(r, rate);
-    grid.appendChild(b);
-  }
-  m.querySelector('#b-cancel').onclick = hideModal;
-}
-
-// paso 2: tocá las N cartas de ese recurso
-function pickGiveForBank(res, rate) {
-  openHandPicker({
-    pid: mePlayer().id,
-    title: `🔁 Dar ${rate}× ${G.RES_EMOJI[res]}`,
-    sub: `Tocá ${rate} cartas de ${resName(res)}.`,
-    need: rate,
-    sameType: true,
-    confirmText: 'Siguiente',
-    onConfirm: () => showReceiveStep(res, rate),
-  });
-}
-
-// paso 3: qué recibís
-function showReceiveStep(res, rate) {
-  const p = mePlayer();
-  let get = null;
-  const m = showModal(`
-    <h2>🔁 Recibir</h2>
-    <p class="sub">Das ${rate}× ${G.RES_EMOJI[res]}. Elegí qué recibís.</p>
-    <div class="pickgrid" id="bget"></div>
-    <div class="btnrow">
-      <button class="btn" id="b-cancel">Cerrar</button>
-      <button class="btn primary" id="b-ok" disabled>Intercambiar</button>
-    </div>`);
-  const grid = m.querySelector('#bget');
-  for (const r of G.RESOURCES) {
-    if (r === res) continue;
-    const b = document.createElement('button');
-    b.className = 'pick';
-    b.textContent = G.RES_EMOJI[r];
-    b.onclick = () => { get = r; grid.querySelectorAll('.pick').forEach((x) => x.classList.remove('on')); b.classList.add('on'); m.querySelector('#b-ok').disabled = false; };
-    grid.appendChild(b);
-  }
-  m.querySelector('#b-cancel').onclick = hideModal;
-  m.querySelector('#b-ok').onclick = () => {
-    const done = (r) => { if (r.ok) { hideModal(); renderAll(); } else m.querySelector('#b-cancel').before(Object.assign(document.createElement('p'), { textContent: r.err, style: 'color:#ff7b7b' })); };
-    if (session.online) act('bankTrade', [res, get]).then(done);
-    else done(G.bankTrade(game, res, get));
-  };
 }
 
 /* ---------------- boot ---------------- */
