@@ -210,6 +210,14 @@ export function renderBoard(svg, st, targets, onPick) {
     const M = 120;
     VB = { x: minX - M, y: minY - M, w: maxX - minX + 2 * M, h: maxY - minY + 2 * M };
   }
+  // estirar el viewBox al aspecto real del contenedor: el mar llega hasta los
+  // bordes sin franjas de letterbox
+  const cw = svg.clientWidth || 0, ch = svg.clientHeight || 0;
+  if (cw && ch) {
+    const target = cw / ch, actual = VB.w / VB.h;
+    if (actual < target) { const extra = VB.h * target - VB.w; VB.x -= extra / 2; VB.w += extra; }
+    else if (actual > target) { const extra = VB.w / target - VB.h; VB.y -= extra / 2; VB.h += extra; }
+  }
   svg.setAttribute('viewBox', `${VB.x} ${VB.y} ${VB.w} ${VB.h}`);
 
   // defs: gradientes por terreno, arena y sombras
@@ -223,6 +231,11 @@ export function renderBoard(svg, st, targets, onPick) {
   const lagoonLg = el('linearGradient', { id: 'tg-lagoon', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
   el('stop', { offset: '0%', 'stop-color': '#6cb2e2' }, lagoonLg);
   el('stop', { offset: '100%', 'stop-color': '#3f7cb8' }, lagoonLg);
+  // texturas de mar y arena de Fran, repetidas en patrón
+  const seaPat = el('pattern', { id: 'seaPat', width: 430, height: 430, patternUnits: 'userSpaceOnUse' }, defs);
+  el('image', { href: 'tiles/water.png?v=1', width: 430, height: 430, preserveAspectRatio: 'xMidYMid slice' }, seaPat);
+  const sandPat = el('pattern', { id: 'sandPat', width: 300, height: 300, patternUnits: 'userSpaceOnUse' }, defs);
+  el('image', { href: 'tiles/sand.png?v=1', width: 300, height: 300, preserveAspectRatio: 'xMidYMid slice' }, sandPat);
   const fogLg = el('linearGradient', { id: 'tg-fog', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
   el('stop', { offset: '0%', 'stop-color': '#b6c3d2' }, fogLg);
   el('stop', { offset: '100%', 'stop-color': '#8b9cb0' }, fogLg);
@@ -235,7 +248,7 @@ export function renderBoard(svg, st, targets, onPick) {
   el('feDropShadow', { dx: 0, dy: 2, stdDeviation: 1.5, 'flood-color': '#08243e', 'flood-opacity': 0.45 }, fPiece);
 
   // sea
-  el('rect', { x: VB.x, y: VB.y, width: VB.w, height: VB.h, fill: SEA }, svg);
+  el('rect', { x: VB.x, y: VB.y, width: VB.w, height: VB.h, fill: 'url(#seaPat)' }, svg);
   for (const [x, y, e] of DOODLES) {
     el('text', { x, y, 'font-size': 40, opacity: 0.08, 'text-anchor': 'middle' }, svg).textContent = e;
   }
@@ -251,7 +264,7 @@ export function renderBoard(svg, st, targets, onPick) {
     points: coastPts, fill: 'none', stroke: '#e8f4fb', 'stroke-width': 64,
     'stroke-linejoin': 'round', 'stroke-dasharray': '22 14', 'stroke-linecap': 'round', opacity: 0.95,
   }, svg);
-  el('polygon', { points: coastPts, fill: 'url(#tg-sand)', stroke: '#ffffff', 'stroke-width': 42, 'stroke-linejoin': 'round' }, svg);
+  el('polygon', { points: coastPts, fill: 'url(#sandPat)', stroke: '#ffffff', 'stroke-width': 64, 'stroke-linejoin': 'round' }, svg);
   el('polygon', { points: coastPts, fill: 'none', stroke: '#e0c893', 'stroke-width': 3 }, svg);
 
   // hexes: gradiente + ilustración vectorial, recortados al hex
@@ -271,7 +284,7 @@ export function renderBoard(svg, st, targets, onPick) {
       // laguna central: agua clara
       el('rect', {
         x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1), width: TW, height: TH,
-        fill: 'url(#tg-lagoon)',
+        fill: 'url(#seaPat)',
       }, g);
     } else if (hidden) {
       // la niebla se dibuja de una pieza después (una sola capa de nubes)
