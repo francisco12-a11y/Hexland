@@ -450,6 +450,14 @@ body {
 }
 #tradebar .tb-btns button:disabled { opacity: 0.35; cursor: not-allowed; }
 #tradebar .tb-actions { margin-top: 2px; }
+#tradebar .tb-x {
+  position: absolute; top: -10px; right: -10px;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--danger); color: #fff;
+  border: 2px solid #fff; font-size: 14px; font-weight: 800;
+  cursor: pointer; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+  display: flex; align-items: center; justify-content: center;
+}
 
 /* pedidos como cartas: badge de cantidad en la fuente, minis que se sacan al tocar */
 #tradebar .tb-src { position: relative; cursor: pointer; }

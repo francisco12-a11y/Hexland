@@ -485,6 +485,7 @@ function renderTradeBar() {
     const rate = mismoRecurso ? G.tradeRate(game, p.id, mismoRecurso) : null;
     const bancoOk = !!mismoRecurso && totalGive === rate && totalGet === 1;
     bar.innerHTML = `
+      <button class="tb-x" id="tb-x" title="Cerrar">✕</button>
       <div class="tb-row">
         <span class="tb-label">Das</span>
         <span class="tb-cards">${selCards.map((r) => `<span class="rescard ${r} tb-mini">${G.RES_EMOJI[r]}</span>`).join('') || '<em class="tb-empty">tocá cartas de tu mano</em>'}</span>
@@ -514,6 +515,7 @@ function renderTradeBar() {
         renderAll();
       };
     });
+    bar.querySelector('#tb-x').onclick = exitTradeMode;
     bar.querySelector('#tb-cancel').onclick = exitTradeMode;
     bar.querySelector('#tb-bank').onclick = () => {
       const res = mismoRecurso;
@@ -785,7 +787,7 @@ function renderPieceButtons() {
     return `<button class="pbtn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" title="${title}" ${dis ? 'disabled' : ''}>${icon}<span class="n">×${left[kind]}</span></button>`;
   };
   if (tradeMode) {
-    box.innerHTML = `trace: piece trade branch`;
+    box.innerHTML = '';
     renderTradeBar();
     return;
   }
