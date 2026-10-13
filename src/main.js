@@ -1297,6 +1297,16 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && tradeMode) exitTradeMode();
 });
 
+// click en cualquier parte que no sea un botón o un modal: sale del modo de
+// construcción (el tablero, el footer, el panel lateral, los dados…)
+document.addEventListener('click', (e) => {
+  if (!mode || !game || game.phase !== 'main') return;
+  if (e.target.closest('button')) return; // los botones manejan lo suyo
+  if (e.target.closest('#overlay')) return; // los modales también
+  mode = null;
+  renderAll();
+});
+
 // the dice panel itself is the roll button
 $('#diceres').addEventListener('click', () => doRoll());
 
