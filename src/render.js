@@ -274,17 +274,7 @@ export function renderBoard(svg, st, targets, onPick) {
         fill: 'url(#tg-lagoon)',
       }, g);
     } else if (hidden) {
-      // niebla sin descubrir: textura de Fran + signo de pregunta
-      el('image', {
-        href: `tiles/fog.png?v=1`,
-        x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1),
-        width: TW, height: TH,
-        preserveAspectRatio: 'xMidYMid slice',
-      }, g);
-      el('text', {
-        x: h.x, y: h.y + 8, 'text-anchor': 'middle', 'font-size': 26,
-        'font-weight': 800, fill: '#4c5c70', 'font-family': 'system-ui',
-      }, g).textContent = '?';
+      // la niebla se dibuja de una pieza después (una sola capa de nubes)
     } else {
       el('image', {
         href: `tiles/${h.terrain}.png?v=3`,
@@ -307,6 +297,27 @@ export function renderBoard(svg, st, targets, onPick) {
   const lag = st.board.hexes.find((h) => h.terrain === 'lagoon');
   if (lag) {
     el('text', { x: lag.x, y: lag.y + 7, 'font-size': 20, 'text-anchor': 'middle', opacity: 0.9 }, svg).textContent = '⛵';
+  }
+
+  // capa de niebla: UNA imagen con todas las nubes, recortada a los hexes
+  // ocultos (se ve el campo de nubes completo, no un pedazo gris por hex)
+  const ocultos = st.board.hexes.filter((h) => h.fog && !(st.revealed || []).includes(h.id));
+  if (ocultos.length) {
+    const clip = el('clipPath', { id: 'fogclip' }, defs);
+    for (const h of ocultos) el('polygon', { points: hexPoints(h) }, clip);
+    el('image', {
+      href: 'tiles/fog.png?v=2',
+      x: VB.x, y: VB.y, width: VB.w, height: VB.h,
+      preserveAspectRatio: 'xMidYMid slice',
+      'clip-path': 'url(#fogclip)',
+    }, svg);
+    for (const h of ocultos) {
+      el('text', {
+        x: h.x, y: h.y + 9, 'text-anchor': 'middle', 'font-size': 26,
+        'font-weight': 800, fill: '#3e4c5e', 'font-family': 'system-ui',
+        opacity: 0.9,
+      }, svg).textContent = '?';
+    }
   }
 
   // flashing border on every hex matching the last roll (white on navy: visible on any terrain)
