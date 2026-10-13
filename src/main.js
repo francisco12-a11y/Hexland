@@ -23,7 +23,7 @@ const session = {
 let lobbyTab = 'local';
 let mapPick = 'clasico';
 let vpTarget = 10;
-let tradeMode = null; // {giveSel:Set(indices de mano), get:{res:n}} — oferta en el footer
+let tradeMode = null; // {giveSel:Set(indices de mano), getSel:[res]} — oferta en el footer
 const expandHand = (p) => {
   const hand = [];
   for (const r of G.RESOURCES) for (let i = 0; i < p.res[r]; i++) hand.push(r);
@@ -414,55 +414,73 @@ function targetsForMode() {
 function exitTradeMode() { tradeMode = null; renderAll(); }
 
 // barra flotante sobre el footer: tu selección como cartas + qué pedís
+// (misma gramática que la mano: tocá el recurso para sumar, la mini-cartita para restar)
 function renderTradeBar() {
   const bar = document.querySelector('#tradebar');
-  if (!bar || !tradeMode) return;
-  const p = mePlayer();
-  const hand = expandHand(p);
-  const selCards = [...tradeMode.giveSel].map((i) => hand[i]);
-  const totalGive = selCards.length;
-  const totalGet = G.RESOURCES.reduce((a, r) => a + (tradeMode.get[r] || 0), 0);
-  const chips = G.RESOURCES.map((r) => {
-    const n = tradeMode.get[r] || 0;
-    return `<span class="tb-chip ${n ? 'on' : ''}"><b>${G.RES_EMOJI[r]}</b><span class="tb-n">${n}</span>
-      <span class="tb-btns"><button data-r="${r}" data-d="1" ${n >= 9 ? 'disabled' : ''}>+</button>
-      <button data-r="${r}" data-d="-1" ${n === 0 ? 'disabled' : ''}>−</button></span></span>`;
-  }).join('');
-  bar.innerHTML = `
-    <div class="tb-row">
-      <span class="tb-label">Das</span>
-      <span class="tb-cards">${selCards.map((r) => `<span class="rescard ${r} tb-mini">${G.RES_EMOJI[r]}</span>`).join('') || '<em class="tb-empty">tocá cartas de tu mano</em>'}</span>
-    </div>
-    <div class="tb-row">
-      <span class="tb-label">Pedís</span>
-      ${chips}
-    </div>
-    <div class="tb-row tb-actions">
-      <button class="btn" id="tb-cancel">Cancelar</button>
-      <button class="btn primary" id="tb-ok" ${totalGive === 0 || totalGet === 0 ? 'disabled' : ''}>Proponer 🤝</button>
-    </div>`;
-  bar.querySelectorAll('.tb-btns button').forEach((b) => {
-    b.onclick = () => {
-      const r = b.dataset.r;
-      tradeMode.get[r] = Math.max(0, (tradeMode.get[r] || 0) + Number(b.dataset.d));
-      renderAll();
+  try {
+    if (!bar || !tradeMode) return;
+    const p = mePlayer();
+    const hand = expandHand(p);
+    const selCards = [...tradeMode.giveSel].map((i) => hand[i]);
+    const pedidas = tradeMode.getSel;
+    const totalGive = selCards.length;
+    const totalGet = pedidas.length;
+    const chips = G.RESOURCES.map((r) => {
+      const n = pedidas.filter((x) => x === r).length;
+      return `<button class="rescard tb-mini tb-src" data-res="${r}">${G.RES_EMOJI[r]}${n ? `<span class="tb-badge">${n}</span>` : ''}</button>`;
+    }).join('');
+    const minis = pedidas.map((r, i) =>
+      `<button class="rescard ${r} tb-mini tb-out" data-i="${i}" title="tocá para sacar">${G.RES_EMOJI[r]}</button>`).join('')
+      || '<em class="tb-empty">tocá los recursos</em>';
+    bar.innerHTML = `
+      <div class="tb-row">
+        <span class="tb-label">Das</span>
+        <span class="tb-cards">${selCards.map((r) => `<span class="rescard ${r} tb-mini">${G.RES_EMOJI[r]}</span>`).join('') || '<em class="tb-empty">tocá cartas de tu mano</em>'}</span>
+      </div>
+      <div class="tb-row">
+        <span class="tb-label">Pedís</span>
+        <span class="tb-cards">${chips}</span>
+        <span class="tb-arrow">→</span>
+        <span class="tb-cards" id="tb-out">${minis}</span>
+      </div>
+      <div class="tb-row tb-actions">
+        <button class="btn" id="tb-cancel">Cancelar</button>
+        <button class="btn primary" id="tb-ok" ${totalGive === 0 || totalGet === 0 ? 'disabled' : ''}>Proponer 🤝</button>
+      </div>`;
+    bar.querySelectorAll('.tb-src').forEach((b) => {
+      b.onclick = () => {
+        const res = b.dataset.res;
+        if (pedidas.filter((x) => x === res).length >= 9) return;
+        pedidas.push(res);
+        renderAll();
+      };
+    });
+    bar.querySelectorAll('#tb-out .tb-out').forEach((b) => {
+      b.onclick = () => {
+        pedidas.splice(Number(b.dataset.i), 1);
+        renderAll();
+      };
+    });
+    bar.querySelector('#tb-cancel').onclick = exitTradeMode;
+    bar.querySelector('#tb-ok').onclick = () => {
+      const give = giveFromSel(p, tradeMode.giveSel);
+      const get = {};
+      for (const r of pedidas) get[r] = (get[r] || 0) + 1;
+      const done = (res) => {
+        tradeMode = null;
+        if (!res.ok) return flash(res.err);
+        if (session.online) renderAll();
+        else showOfferWaiting();
+      };
+      if (session.online) act('proposeTrade', [give, get]).then(done);
+      else done(G.proposeTrade(game, give, get));
     };
-  });
-  bar.querySelector('#tb-cancel').onclick = exitTradeMode;
-  bar.querySelector('#tb-ok').onclick = () => {
-    const give = giveFromSel(p, tradeMode.giveSel);
-    const get = {};
-    for (const r of G.RESOURCES) if (tradeMode.get[r]) get[r] = tradeMode.get[r];
-    const done = (res) => {
-      tradeMode = null;
-      if (!res.ok) return flash(res.err);
-      if (session.online) renderAll();
-      else showOfferWaiting();
-    };
-    if (session.online) act('proposeTrade', [give, get]).then(done);
-    else done(G.proposeTrade(game, give, get));
-  };
+  } catch (e) {
+    if (bar) bar.innerHTML = `ERROR renderTradeBar: ${e.message}`;
+    console.error(e);
+  }
 }
+
 
 function renderAll() {
   if (!game) return;
@@ -706,7 +724,7 @@ function renderPieceButtons() {
     return `<button class="pbtn ${mode?.kind === kind ? 'on' : ''}" data-k="${kind}" title="${title}" ${dis ? 'disabled' : ''}>${icon}<span class="n">×${left[kind]}</span></button>`;
   };
   if (tradeMode) {
-    box.innerHTML = '';
+    box.innerHTML = `trace: piece trade branch`;
     renderTradeBar();
     return;
   }
@@ -730,7 +748,7 @@ function renderPieceButtons() {
   $('#b-trade').onclick = showTradeModal;
   $('#b-ptrade').onclick = () => {
     if (tradeMode) return exitTradeMode();
-    tradeMode = { giveSel: new Set(), get: {} };
+    tradeMode = { giveSel: new Set(), getSel: [] };
     renderAll();
   };
   $('#b-dev').onclick = () => {

@@ -450,3 +450,17 @@ body {
 }
 #tradebar .tb-btns button:disabled { opacity: 0.35; cursor: not-allowed; }
 #tradebar .tb-actions { margin-top: 2px; }
+
+/* pedidos como cartas: badge de cantidad en la fuente, minis que se sacan al tocar */
+#tradebar .tb-src { position: relative; cursor: pointer; }
+#tradebar .tb-src:hover { filter: brightness(1.15); }
+#tradebar .tb-badge {
+  position: absolute; top: -6px; right: -6px;
+  background: var(--accent); color: #22303f;
+  border-radius: 999px; min-width: 18px; height: 18px;
+  font-size: 11px; font-weight: 800; line-height: 18px;
+  font-family: system-ui; text-shadow: none;
+}
+#tradebar .tb-arrow { color: var(--muted); font-size: 18px; }
+#tradebar .tb-out { cursor: pointer; outline: 2px dashed rgba(255, 255, 255, 0.45); }
+#tradebar .tb-out:hover { outline-color: var(--danger); filter: brightness(1.1); }
