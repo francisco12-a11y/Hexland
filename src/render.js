@@ -324,11 +324,17 @@ export function renderBoard(svg, st, targets, onPick) {
       preserveAspectRatio: 'xMidYMid slice',
       'clip-path': 'url(#fogclip)',
     }, svg);
+    // velo oscuro: oscurece conservando el relieve de las nubes
+    el('rect', {
+      x: VB.x, y: VB.y, width: VB.w, height: VB.h,
+      fill: '#46566a', opacity: 0.35,
+      'clip-path': 'url(#fogclip)',
+    }, svg);
     for (const h of ocultos) {
       el('text', {
         x: h.x, y: h.y + 9, 'text-anchor': 'middle', 'font-size': 26,
-        'font-weight': 800, fill: '#3e4c5e', 'font-family': 'system-ui',
-        opacity: 0.9,
+        'font-weight': 800, fill: '#e8edf4', 'font-family': 'system-ui',
+        opacity: 0.85,
       }, svg).textContent = '?';
     }
   }
