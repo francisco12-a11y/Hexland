@@ -259,12 +259,12 @@ export function renderBoard(svg, st, targets, onPick) {
     .map((v) => `${v.x.toFixed(1)},${v.y.toFixed(1)}`)
     .join(' ');
   el('polygon', { points: coastPts, fill: 'rgba(8,30,55,0.30)', transform: 'translate(0 10)' }, svg);
-  el('polygon', { points: coastPts, fill: 'none', stroke: '#5aa9dd', 'stroke-width': 100, 'stroke-linejoin': 'round', opacity: 0.6 }, svg);
+  el('polygon', { points: coastPts, fill: 'none', stroke: '#5aa9dd', 'stroke-width': 130, 'stroke-linejoin': 'round', opacity: 0.6 }, svg);
   el('polygon', {
-    points: coastPts, fill: 'none', stroke: '#e8f4fb', 'stroke-width': 64,
+    points: coastPts, fill: 'none', stroke: '#e8f4fb', 'stroke-width': 96,
     'stroke-linejoin': 'round', 'stroke-dasharray': '22 14', 'stroke-linecap': 'round', opacity: 0.95,
   }, svg);
-  el('polygon', { points: coastPts, fill: 'url(#sandPat)', stroke: '#ffffff', 'stroke-width': 64, 'stroke-linejoin': 'round' }, svg);
+  el('polygon', { points: coastPts, fill: 'url(#sandPat)', stroke: 'url(#sandPat)', 'stroke-width': 72, 'stroke-linejoin': 'round' }, svg);
   el('polygon', { points: coastPts, fill: 'none', stroke: '#e0c893', 'stroke-width': 3 }, svg);
 
   // hexes: gradiente + ilustración vectorial, recortados al hex
