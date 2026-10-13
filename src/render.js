@@ -274,18 +274,16 @@ export function renderBoard(svg, st, targets, onPick) {
         fill: 'url(#tg-lagoon)',
       }, g);
     } else if (hidden) {
-      // niebla sin descubrir: nubes y signo de pregunta
-      el('rect', {
-        x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1), width: TW, height: TH,
-        fill: 'url(#tg-fog)',
+      // niebla sin descubrir: textura de Fran + signo de pregunta
+      el('image', {
+        href: `tiles/fog.png?v=1`,
+        x: (h.x - TW / 2).toFixed(1), y: (h.y - TH / 2).toFixed(1),
+        width: TW, height: TH,
+        preserveAspectRatio: 'xMidYMid slice',
       }, g);
-      el('g', { fill: '#e9eef4', opacity: 0.85 }, g).innerHTML = `
-        <ellipse cx="${h.x - 18}" cy="${h.y - 12}" rx="22" ry="12"/>
-        <ellipse cx="${h.x + 16}" cy="${h.y - 2}" rx="25" ry="13"/>
-        <ellipse cx="${h.x - 6}" cy="${h.y + 14}" rx="21" ry="12"/>`;
       el('text', {
         x: h.x, y: h.y + 8, 'text-anchor': 'middle', 'font-size': 26,
-        'font-weight': 800, fill: '#5a6b80', 'font-family': 'system-ui',
+        'font-weight': 800, fill: '#4c5c70', 'font-family': 'system-ui',
       }, g).textContent = '?';
     } else {
       el('image', {
