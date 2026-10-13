@@ -306,7 +306,7 @@ export function renderBoard(svg, st, targets, onPick) {
     const clip = el('clipPath', { id: 'fogclip' }, defs);
     for (const h of ocultos) el('polygon', { points: hexPoints(h) }, clip);
     el('image', {
-      href: 'tiles/fog.png?v=2',
+      href: 'tiles/fog.png?v=3',
       x: VB.x, y: VB.y, width: VB.w, height: VB.h,
       preserveAspectRatio: 'xMidYMid slice',
       'clip-path': 'url(#fogclip)',
