@@ -476,6 +476,16 @@ export function renderBoard(svg, st, targets, onPick) {
     }
   }
 
+  // poblado provisorio del setup: semitransparente y pulsando hasta confirmar
+  if (st.pendingSetup) {
+    const v = st.board.vertices[st.pendingSetup.vid];
+    const owner = st.players[st.current];
+    const dark = shade(owner.color, -18);
+    const g = el('g', { transform: `translate(${v.x} ${v.y})`, opacity: 0.55, class: 'pulse' }, svg);
+    el('path', { d: 'M-9 4 L-9 -4 L9 -4 L9 4 Z', fill: dark, stroke: '#f8f8f2', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, g);
+    el('path', { d: 'M-10 -4 L0 -13 L10 -4 Z', fill: owner.color, stroke: '#f8f8f2', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, g);
+  }
+
   // interactive targets on top
   const gT = el('g', {}, svg);
   for (const hid of targets.hexes || []) {

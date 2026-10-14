@@ -78,6 +78,7 @@ export function newGame(names, seed = Date.now() % 2 ** 31, colors = null, map =
     knightsMode,         // regla de caballeros (disputas de caminos)
     knightPieces: [],    // caballeros en el tablero: {id, edge, owner}
     disputes: [],        // disputas pendientes: {edge, attacker, defender, pieceId}
+    pendingSetup: null,  // setup: poblado provisorio {vid} — se confirma con el camino
     knightSeq: 0,
     lastRollWas7: false, // regla de casa: no permite dos 7 seguidos
     devPlayed: false,    // una sola carta de desarrollo por turno
@@ -186,9 +187,9 @@ export function roadSpots(st, pid) {
 }
 
 export function setupRoadSpots(st, pid) {
-  const v = st.lastSetupVertex;
-  if (v == null) return [];
-  return st.board.vertices[v].edges.filter((eid) => !roadTaken(st, eid));
+  const pending = st.pendingSetup;
+  if (!pending) return [];
+  return st.board.vertices[pending.vid].edges.filter((eid) => !roadTaken(st, eid));
 }
 
 export function citySpots(st, pid) {
@@ -197,38 +198,42 @@ export function citySpots(st, pid) {
 
 // ---------- setup phase ----------
 
+// setup PROVISORIO: tocar un vértice coloca el poblado "en borrador"; se
+// confirma (recursos incluidos) al colocar el camino. Tocar otro vértice
+// válido lo mueve; tocar cualquier otro lado lo cancela (main.js lo maneja).
 export function placeSetupSettlement(st, vid) {
   if (st.phase !== 'setup') return err('No es la fase de colocación');
   const pid = st.setupQueue[st.setupIdx];
   if (!settlementSpots(st, pid, true).includes(vid)) return err('Lugar inválido');
-  const p = st.players[pid];
-  p.settlements.push(vid);
-  st.lastSetupVertex = vid;
-  log(st, `🏠 ${p.name} fundó un asentamiento.`);
-  // second pass: collect one resource per adjacent hex
-  if (st.setupIdx >= st.players.length) {
-    for (const hid of st.board.vertices[vid].hexes) {
-      const hex = st.board.hexes[hid];
-      if (hex.terrain !== 'desert') p.res[TERRAIN_RES[hex.terrain]]++;
-    }
-  }
+  st.pendingSetup = { vid };
+  log(st, `🏠 ${st.players[pid].name} eligió un lugar (confirmá con el camino).`);
   return OK;
 }
 
 export function placeSetupRoad(st, eid) {
   if (st.phase !== 'setup') return err('No es la fase de colocación');
   const pid = st.setupQueue[st.setupIdx];
+  const pending = st.pendingSetup;
+  if (!pending) return err('Primero elegí un lugar para tu poblado');
   if (!setupRoadSpots(st, pid).includes(eid)) return err('Camino inválido');
   const p = st.players[pid];
+  // CONFIRMACIÓN: acá se consolida el poblado provisorio (con sus recursos)
+  p.settlements.push(pending.vid);
+  if (st.setupIdx >= st.players.length) {
+    for (const hid of st.board.vertices[pending.vid].hexes) {
+      const hex = st.board.hexes[hid];
+      if (hex.terrain !== 'desert') p.res[TERRAIN_RES[hex.terrain]]++;
+    }
+  }
   p.roads.push(eid);
   revealByRoad(st, eid);
-  st.lastSetupVertex = null; // el paso termina: el siguiente jugador coloca asentamiento
+  st.pendingSetup = null; // confirmado: el siguiente jugador coloca asentamiento
+  log(st, `🏠 ${p.name} fundó un asentamiento.`);
   log(st, `🛣️ ${p.name} construyó un camino.`);
   st.setupIdx++;
   if (st.setupIdx >= st.setupQueue.length) {
     st.phase = 'roll';
     st.current = 0;
-    st.lastSetupVertex = null;
     log(st, `🏁 Colocación lista. ¡Arranca ${st.players[0].name}!`);
   } else {
     st.current = st.setupQueue[st.setupIdx];
@@ -756,6 +761,14 @@ export function counterAttack(st, edge, targetEdge) {
   st.disputes = st.disputes.filter((x) => x !== d);
   log(st, `⚔️ ${p.name} contraatacó y destruyó un camino de ${attacker.name}.`);
   refreshLongestRoad(st);
+  return OK;
+}
+
+// cancela el poblado provisorio (tocó otro lado / se arrepintió)
+export function cancelSetupPlacement(st) {
+  if (st.phase !== 'setup' || !st.pendingSetup) return err('Nada para cancelar');
+  st.pendingSetup = null;
+  log(st, `↩️ ${st.players[st.current].name} reconsideró su lugar.`);
   return OK;
 }
 

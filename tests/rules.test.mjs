@@ -623,20 +623,17 @@ test('tasas de puerto: 2:1 con puerto del recurso, 3:1 con puerto genérico, 4:1
   assert.equal(st.players[0].res.wheat, before.t + 1);
 });
 
-test('colocación: tras el camino de un jugador, el siguiente arranca por asentamiento (sin lastSetupVertex heredado)', () => {
+test('colocación: tras el camino de un jugador, el siguiente arranca por asentamiento (pendingSetup limpio)', () => {
   const st = startGame(7); // startGame ya jugó todo el setup; armamos uno fresco
   const st2 = G.newGame(['A', 'B'], 7);
-  // A coloca asentamiento + camino
+  // A coloca asentamiento (provisorio) + camino (lo confirma)
   const sA = G.settlementSpots(st2, 0, true)[0];
   G.placeSetupSettlement(st2, sA);
-  assert.ok(st2.lastSetupVertex != null, 'habilita el paso camino');
+  assert.ok(st2.pendingSetup != null, 'habilita el paso camino');
   G.placeSetupRoad(st2, G.setupRoadSpots(st2, 0)[0]);
-  assert.equal(st2.lastSetupVertex, null, 'se limpia al terminar el paso');
-  // B: sin asentamiento propio no hay caminos disponibles
+  assert.equal(st2.pendingSetup, null, 'se limpia al confirmar');
   assert.deepEqual(G.setupRoadSpots(st2, 1), []);
-  // y sus lugares de asentamiento son los normales (regla de distancia)
   assert.ok(G.settlementSpots(st2, 1, true).length > 0);
-  // el setup completo de startGame es consistente: cada camino toca su asentamiento
   for (const p of st.players) {
     assert.equal(p.roads.length, 2);
     assert.equal(p.settlements.length, 2);

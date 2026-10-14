@@ -305,6 +305,7 @@ const HOST_ACTIONS = {
   placeKnight: (st, a) => G.placeKnight(st, a[0]),
   defendKnight: (st, a) => G.defendKnight(st, a[0]),
   counterAttack: (st, a) => G.counterAttack(st, a[0], a[1]),
+  cancelSetupPlacement: (st) => G.cancelSetupPlacement(st),
   endTurn: (st) => G.endTurn(st),
 };
 
@@ -414,9 +415,9 @@ function targetsForMode() {
   if (game.phase === 'setup') {
     if (!myTurnSetup) return t;
     // en online el paso lo dicta el estado (¿ya colocó el asentamiento?), no el mode local
-    const roadStep = session.online ? game.lastSetupVertex != null : mode?.kind === 'road';
-    if (!roadStep) G.settlementSpots(game, game.current, true).forEach((v) => t.vertices.add(v));
-    else G.setupRoadSpots(game, game.current).forEach((e) => t.edges.add(e));
+    // setup: vértices para elegir/mover + caminos para confirmar si hay provisorio
+    G.settlementSpots(game, game.current, true).forEach((v) => t.vertices.add(v));
+    G.setupRoadSpots(game, game.current).forEach((e) => t.edges.add(e));
   } else if (game.phase === 'main') {
     if (session.online && game.current !== session.myId) return t;
     if (mode?.kind === 'settlement') G.settlementSpots(game, game.current, false).forEach((v) => t.vertices.add(v));
@@ -844,11 +845,10 @@ function renderPrompt() {
   const waiting = session.online && game.current !== session.myId;
   let msg = '';
   if (game.phase === 'setup') {
-    const roadStep = session.online ? game.lastSetupVertex != null : mode?.kind === 'road';
-    msg = roadStep
-      ? `🛣️ ${p.name}: elegí el camino junto a tu asentamiento`
+    msg = game.pendingSetup
+      ? `🛣️ ${p.name}: tocá un camino para confirmar — otro lugar para moverlo`
       : `🏠 ${p.name}: elegí dónde fundar tu asentamiento`;
-    if (!roadStep && game.board.firstRoundPlain && game.setupIdx < game.players.length) {
+    if (!game.pendingSetup && game.board.firstRoundPlain && game.setupIdx < game.players.length) {
       msg = `🏠 ${p.name}: primer asentamiento sobre un recurso (no piedra ni oro)`;
     }
     if (waiting) msg = `⏳ ${p.name} está colocando…`;
@@ -923,7 +923,12 @@ function onPick(kind, id) {
   }
   if (game.phase === 'over') { mode = null; renderAll(); showWin(); return; }
   if (game.phase === 'setup') {
-    mode = kind === 'vertex' ? { kind: 'road', setup: true } : { kind: 'settlement', setup: true };
+    // click fuera de un lugar/camino válido: cancela el provisorio
+    if (!r.ok && game.pendingSetup) {
+      game.pendingSetup = null;
+      renderAll();
+      return;
+    }
     renderAll();
     return;
   }
@@ -937,9 +942,9 @@ function onPick(kind, id) {
 
 function pick(g, kind, id) {
   if (g.phase === 'setup') {
-    if (kind === 'vertex' && mode?.kind === 'settlement') return G.placeSetupSettlement(g, id);
-    if (kind === 'edge' && mode?.kind === 'road') return G.placeSetupRoad(g, id);
-    return { ok: false, err: 'Seguí las instrucciones de arriba', silent: !mode };
+    if (kind === 'vertex') return G.placeSetupSettlement(g, id); // coloca o mueve el provisorio
+    if (kind === 'edge' && g.pendingSetup) return G.placeSetupRoad(g, id); // confirma
+    return { ok: false, silent: true }; // fuera: main.js cancela el provisorio
   }
   if (g.phase === 'robber' && kind === 'hex') {
     const r = G.moveRobber(g, id);
@@ -959,11 +964,12 @@ function onlinePick(kind, id) {
   const g = game;
   const me = session.myId;
   if (g.phase === 'setup' && g.setupQueue[g.setupIdx] === me) {
-    const roadStep = g.lastSetupVertex != null;
-    if (kind === 'vertex' && !roadStep && G.settlementSpots(g, me, true).includes(id)) {
+    if (kind === 'vertex' && G.settlementSpots(g, me, true).includes(id)) {
       act('placeSetupSettlement', [id]).then((r) => { if (!r.ok) flash(r.err); });
-    } else if (kind === 'edge' && roadStep && G.setupRoadSpots(g, me).includes(id)) {
+    } else if (kind === 'edge' && g.pendingSetup && G.setupRoadSpots(g, me).includes(id)) {
       act('placeSetupRoad', [id]).then((r) => { if (!r.ok) flash(r.err); });
+    } else if (g.pendingSetup) {
+      act('cancelSetupPlacement', []).then(() => {});
     }
     return;
   }
